@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Rule 1)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Primitives (Phase 3)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Schema Validation Helpers (Rule 2)
+    function isValidOperator(data) {
+      return data.keys().hasAll(['id', 'name', 'records']) &&
+             data.keys().size() == 3 &&
+             data.id is string && data.id.size() <= 64 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.records is list;
+    }
+
+    function isValidEditLog(data) {
+      return data.keys().hasAll(['id', 'operatorId', 'operatorName', 'schoolName', 'field', 'oldValue', 'newValue', 'timestamp']) &&
+             data.keys().size() == 8 &&
+             data.id is string && data.id.size() <= 64 &&
+             data.operatorId is string && data.operatorId.size() <= 64 &&
+             data.operatorName is string && data.operatorName.size() <= 128 &&
+             data.schoolName is string && data.schoolName.size() <= 256 &&
+             data.field is string && data.field.size() <= 64 &&
+             data.oldValue is string && data.oldValue.size() <= 1024 &&
+             data.newValue is string && data.newValue.size() <= 1024 &&
+             data.timestamp is string && data.timestamp.size() <= 64;
+    }
+
+    // Operator Collection Security Rules
+    match /operators/{operatorId} {
+      allow read, write: if true; // Publicly readable and writable for simple operator collaborative spreadsheets
+    }
+
+    // Activity Log Collection Security Rules
+    match /activityLogs/{logId} {
+      allow read, write: if true; // Publicly readable and writable for simple operator collaborative logs
+    }
+
+    // Live Chat Message Collection Security Rules
+    match /messages/{messageId} {
+      allow read, write: if true;
+    }
+  }
+}
