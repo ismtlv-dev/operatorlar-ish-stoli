@@ -41,10 +41,8 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
 
   return (
     <div className="mb-4">
-      {/* Upper Grid panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Grid of 8 Stats Cards */}
-        <div className="lg:col-span-4 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+      {/* Stats Cards Grid - full width now */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
           
           {/* Card 1: Jami mijozlar */}
           <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xs flex flex-col justify-between">
@@ -143,59 +141,6 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
           </div>
 
         </div>
-
-        {/* Operator Personal Status breakdown Donut/Pie Chart */}
-        <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xs flex items-center justify-between gap-4 h-[120px] lg:h-auto min-h-[110px]">
-          <div className="flex-1 min-w-0 flex flex-col justify-center">
-            <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-wider mb-0.5 whitespace-nowrap overflow-hidden text-ellipsis">
-              {operatorName}
-            </p>
-            <p className="text-xl font-black text-[#00a372] leading-none mb-1">
-              {progressPerc}%
-            </p>
-            <p className="text-[9px] text-neutral-500 dark:text-neutral-400 leading-tight">
-              ({processed}/{total}) mijoz bilan aloqa o'rnatildi
-            </p>
-            <div className="mt-2.5 h-1.5 w-full bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden">
-              <div className="bg-[#00a372] h-full transition-all duration-300" style={{ width: `${progressPerc}%` }}></div>
-            </div>
-          </div>
-
-          {/* Miniature Bar Chart in place of circular diagram */}
-          <div className="flex items-end justify-between h-[85px] w-[210px] sm:w-[240px] shrink-0 border-l border-neutral-150 dark:border-neutral-700/60 pl-3.5 select-none font-sans">
-            {operatorBars.map((bar, idx) => {
-              const heightPercent = maxVal ? (bar.val / maxVal) * 100 : 0;
-              const barHeight = bar.val > 0 ? Math.max(10, Math.round(heightPercent)) : 0;
-              
-              return (
-                <div 
-                  key={idx} 
-                  title={`${bar.label}: ${bar.val} ta`} 
-                  className="flex flex-col items-center flex-1 h-full justify-end group cursor-help"
-                >
-                  {/* Tooltip Count Display above the bar */}
-                  <span className={`text-[9px] font-black font-mono mb-1 transition-all duration-155 ${bar.val > 0 ? bar.textColor : 'text-neutral-300 dark:text-neutral-700'}`}>
-                    {bar.val}
-                  </span>
-                  
-                  {/* The actual colored bar column */}
-                  <div className="w-5 relative bg-neutral-100 hover:bg-neutral-150 dark:bg-neutral-850 dark:hover:bg-neutral-800 transition-colors h-[48px] rounded-t-[3px] flex flex-col justify-end overflow-hidden">
-                    <div 
-                      className={`w-full rounded-t-[3px] ${bar.color} transition-all duration-500`}
-                      style={{ height: `${barHeight}%` }}
-                    />
-                  </div>
-                  
-                  {/* Short description label under the bar */}
-                  <span className="text-[10px] mt-1 hover:scale-125 transition-transform">
-                    {bar.emoji}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

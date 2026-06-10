@@ -2503,6 +2503,10 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
         )}
 
 
+        {/* Selected Operator Stats Cards (8 status cards - full width) */}
+        {currentView === 'operator' && activeOperator && operatorViewMode === 'table' && (
+          <Stats records={activeOperator.records} operatorName={activeOperator.name} />
+        )}
 
         {/* Main interactive Workbook OperatorTable */}
         {currentView === 'operator' && activeOperator && operatorViewMode === 'table' && (
