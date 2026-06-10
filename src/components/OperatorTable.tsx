@@ -350,8 +350,8 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                 </div>
               </th>
 
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center w-48">Telefon raqami</th>
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center w-48">Qo'shimcha telefon</th>
+              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center min-w-[180px]">Telefon raqami</th>
+              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center min-w-[160px]">Qo'shimcha telefon</th>
               <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center w-44">Natija (Holat)</th>
               <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-b border-neutral-200 dark:border-neutral-800 text-center w-64">IZOH</th>
             </tr>
@@ -400,23 +400,17 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                     </td>
 
                     {/* Column A: Viloyati */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800">
-                      <input
-                        type="text"
-                        className={`w-full text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all ${inputTxtClass}`}
-                        value={record.viloyat}
-                        onChange={(e) => onUpdateRecord(record.id, 'viloyat', e.target.value)}
-                      />
+                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[150px]">
+                      <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug ${inputTxtClass}`}>
+                        {highlightText(record.viloyat, activeSearch)}
+                      </div>
                     </td>
 
                     {/* Column B: Familiya Ism Sharif */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800">
-                      <input
-                        type="text"
-                        className={`w-full text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-bold ${inputTxtClass}`}
-                        value={record.fish}
-                        onChange={(e) => onUpdateRecord(record.id, 'fish', e.target.value)}
-                      />
+                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[200px]">
+                      <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug font-bold ${inputTxtClass}`}>
+                        {highlightText(record.fish, activeSearch)}
+                      </div>
                     </td>
 
                     {/* Column C: Tugulgan sanasi */}
@@ -429,15 +423,12 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                       />
                     </td>
 
-                    {/* Column D: Telefon raqami */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800">
-                      <div className="flex items-center justify-between group/cell relative pr-1">
-                        <input
-                          type="text"
-                          className="flex-1 text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono text-neutral-800 dark:text-neutral-100"
-                          value={record.tel}
-                          onChange={(e) => onUpdateRecord(record.id, 'tel', e.target.value)}
-                        />
+                    {/* Column D: Telefon raqami — FAQAT O'QISH (readonly) */}
+                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[180px]">
+                      <div className="flex items-center justify-between group/cell relative px-2.5 py-2">
+                        <span className="flex-1 text-xs font-mono text-neutral-800 dark:text-neutral-100 select-all whitespace-nowrap">
+                          {highlightText(record.tel, activeSearch)}
+                        </span>
                         <div className="flex items-center shrink-0 ml-1">
                           <button
                             onClick={() => handleCopyPhone(record.id, record.tel)}
