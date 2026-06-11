@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../firebase';
-import { collection, doc, setDoc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { api } from '../api';
 import { ChatMessage } from '../types';
 import { MessageSquare, X, Send, Megaphone, Bell, BellOff, Users } from 'lucide-react';
 
@@ -28,9 +27,15 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
   const hasInitializedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Polling ichida eskirgan (stale) state o'qimaslik uchun reflar
+  const soundEnabledRef = useRef(true);
+  const isOpenRef = useRef(false);
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
+
   // Web Audio API notification beep
   const playBeep = () => {
-    if (!soundEnabled) return;
+    if (!soundEnabledRef.current) return;
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -49,30 +54,42 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
     }
   };
 
-  // Firestore real-time listener
+  // Neon API polling: 5 soniyada bir faqat yangi xabarlar so'raladi
   useEffect(() => {
-    // 'id' Date.now() bilan boshlanadi - xronologik tartib beradi.
-    // desc + limit(120): eng OXIRGI 120 ta xabar olinadi, keyin eskidan-yangiga ag'dariladi.
-    const q = query(collection(db, 'messages'), orderBy('id', 'desc'), limit(120));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loaded: ChatMessage[] = [];
-      snapshot.forEach(d => loaded.push(d.data() as ChatMessage));
-      loaded.reverse();
-      setMessages(loaded);
+    let stopped = false;
+    let afterId = '';
 
-      if (hasInitializedRef.current) {
-        const last = loaded[loaded.length - 1];
-        if (last && last.senderId !== operatorId) {
-          playBeep();
-          if (!isOpen) setUnreadCount(prev => prev + 1);
+    const tick = async () => {
+      try {
+        const incoming = await api.getMessages(afterId || undefined);
+        if (stopped) return;
+        if (incoming.length > 0) {
+          setMessages(prev => {
+            const known = new Set(prev.map(m => m.id));
+            const fresh = incoming.filter(m => !known.has(m.id));
+            if (fresh.length === 0) return prev;
+            return [...prev, ...fresh].slice(-200);
+          });
+          afterId = incoming[incoming.length - 1].id;
+
+          if (hasInitializedRef.current) {
+            const foreign = incoming.filter(m => m.senderId !== operatorId);
+            if (foreign.length > 0) {
+              playBeep();
+              if (!isOpenRef.current) setUnreadCount(prev => prev + foreign.length);
+            }
+          }
         }
-      } else {
         hasInitializedRef.current = true;
+      } catch (e) {
+        // Server o'chiq - keyingi urinishda davom etadi
       }
-    }, err => console.error("Chat listener error:", err));
+    };
 
-    return () => unsubscribe();
-  }, [operatorId, isOpen, soundEnabled]);
+    tick();
+    const timer = setInterval(tick, 5000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [operatorId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -110,11 +127,13 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
     };
 
     try {
-      await setDoc(doc(db, 'messages', msgId), newMsg);
+      // Optimistik: avval ekranda ko'rsatamiz, keyin serverga yuboramiz
+      setMessages(prev => [...prev, newMsg].slice(-200));
       setInputText('');
       setIsAnnouncement(false);
+      await api.sendMessage(newMsg);
     } catch {
-      alert("Xabar yuborilmadi!");
+      alert("Xabar yuborilmadi! Server bilan aloqa yo'q.");
     }
   };
 

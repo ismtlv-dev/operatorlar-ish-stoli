@@ -7,7 +7,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import { db } from './firebase';
-import { collection, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
+import { api } from './api';
 import { initialOperators } from './data';
 import { Operator, SchoolRecord, EditLog } from './types';
 import { Stats } from './components/Stats';
@@ -235,6 +236,29 @@ export default function App() {
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const savingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Baza rejimi: 'neon' - Neon Postgres API orqali; 'local' - faqat localStorage
+  const [dbMode, setDbMode] = useState<'neon' | 'local'>('local');
+  const dbModeRef = useRef<'neon' | 'local'>('local');
+  const lastSyncRef = useRef<number>(0);
+  const operatorsRef = useRef<Operator[]>([]);
+  // Hozir tahrirlanayotgan yozuvlar - polling ularni ustidan yozmasligi uchun
+  const recentEditsRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => { operatorsRef.current = operators; }, [operators]);
+
+  const switchDbMode = (mode: 'neon' | 'local') => {
+    dbModeRef.current = mode;
+    setDbMode(mode);
+  };
+
+  // Neon serveriga yozish - xato bo'lsa ogohlantirish (lokal nusxa baribir saqlangan)
+  const apiSafe = (p: Promise<unknown>) => {
+    p.catch(err => {
+      console.warn('Neon serveriga yozishda xato:', err);
+      triggerNotification("⚠️ Serverga yozilmadi (lokal nusxa saqlandi)");
+    });
+  };
+
   // Navigation & Dropup view states
   const [currentView, setCurrentView] = useState<'operator' | 'admin'>('operator');
   const [showDropup, setShowDropup] = useState(false);
@@ -313,15 +337,48 @@ export default function App() {
     }
   };
 
-  // Dastlabki yuklash tartibi: localStorage -> Firestore (bir marta) -> initialOperators
+  // Dastlabki yuklash tartibi:
+  //   1) Neon Postgres API (server.mjs) - asosiy umumiy baza
+  //   2) Neon bo'sh bo'lsa: localStorage -> Firestore -> initialOperators bilan to'ldiriladi
+  //   3) Server o'chiq bo'lsa: eski lokal rejim (localStorage)
   useEffect(() => {
     let cancelled = false;
 
-    const localOps = loadLocalOperators();
-    if (localOps) {
-      setOperators(localOps);
-    } else {
-      importFromFirestore().then(remoteOps => {
+    const init = async () => {
+      // 1) Neon API
+      try {
+        const state = await api.getState();
+        if (cancelled) return;
+        if (state.operators.length > 0) {
+          const ops = state.operators.map(op => ({ ...op, records: ensureRecordDates(op.records || []) }));
+          setOperators(ops);
+          setActivityLogs(state.logs.slice(0, 500));
+          lastSyncRef.current = state.serverTime;
+          switchDbMode('neon');
+          console.log(`Neon'dan ${ops.length} ta operator yuklandi ☁️`);
+          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
+          return;
+        }
+        // Neon bo'sh - mavjud ma'lumot bilan birinchi marta to'ldiramiz
+        const seed = loadLocalOperators() || (await importFromFirestore()) || initialOperators;
+        if (cancelled) return;
+        await api.bulkReplace(seed);
+        setOperators(seed);
+        lastSyncRef.current = Date.now();
+        switchDbMode('neon');
+        console.log(`Neon bazasi ${seed.length} ta operator bilan to'ldirildi ☁️`);
+        try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(seed)); } catch (e) { /* ignore */ }
+        return;
+      } catch (err) {
+        console.warn("Neon API ishlamayapti - lokal rejimga o'tildi:", err);
+      }
+
+      // 2) Lokal rejim (server o'chiq)
+      const localOps = loadLocalOperators();
+      if (localOps) {
+        setOperators(localOps);
+      } else {
+        const remoteOps = await importFromFirestore();
         if (cancelled) return;
         const ops = remoteOps || initialOperators;
         if (remoteOps) {
@@ -329,20 +386,85 @@ export default function App() {
         }
         setOperators(ops);
         try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
-      });
-    }
-
-    // Ish jurnalini localStorage'dan yuklash
-    try {
-      const rawLogs = localStorage.getItem(LS_LOGS_KEY);
-      if (rawLogs) {
-        const parsedLogs = JSON.parse(rawLogs) as EditLog[];
-        if (Array.isArray(parsedLogs)) setActivityLogs(parsedLogs.slice(0, 500));
       }
-    } catch (e) { /* ignore */ }
 
+      // Ish jurnalini localStorage'dan yuklash
+      try {
+        const rawLogs = localStorage.getItem(LS_LOGS_KEY);
+        if (rawLogs) {
+          const parsedLogs = JSON.parse(rawLogs) as EditLog[];
+          if (Array.isArray(parsedLogs)) setActivityLogs(parsedLogs.slice(0, 500));
+        }
+      } catch (e) { /* ignore */ }
+    };
+
+    init();
     return () => { cancelled = true; };
   }, []);
+
+  // Neon sinxronizatsiya: 10 soniyada bir faqat O'ZGARGAN qatorlar olinadi.
+  // 16 ta operator bir vaqtda ishlaganda bir-birining o'zgarishlarini ko'radi.
+  useEffect(() => {
+    if (dbMode !== 'neon') return;
+
+    const tick = async () => {
+      try {
+        const ch = await api.getChanges(lastSyncRef.current);
+        lastSyncRef.current = ch.serverTime;
+
+        const prev = operatorsRef.current;
+        const totalRecs = prev.reduce((s, o) => s + o.records.length, 0);
+
+        // Operator qo'shildi/o'chdi/qayta nomlandi yoki yozuvlar soni o'zgardi - to'liq qayta yuklash
+        if (ch.opCount !== prev.length || ch.recCount !== totalRecs || ch.operators.length > 0) {
+          const state = await api.getState();
+          const ops = state.operators.map(op => ({ ...op, records: ensureRecordDates(op.records || []) }));
+          setOperators(ops);
+          setActivityLogs(state.logs.slice(0, 500));
+          lastSyncRef.current = state.serverTime;
+          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
+          return;
+        }
+
+        // Faqat o'zgargan yozuvlarni joriy holatga birlashtirish
+        if (ch.records.length > 0) {
+          const now = Date.now();
+          const merged = prev.map(op => {
+            const recChanges = ch.records.filter(r => r.operatorId === op.id);
+            if (recChanges.length === 0) return op;
+            return {
+              ...op,
+              records: op.records.map(rec => {
+                const upd = recChanges.find(c => c.id === rec.id);
+                if (!upd) return rec;
+                const editedAt = recentEditsRef.current.get(rec.id);
+                if (editedAt && now - editedAt < 20000) return rec; // o'zim hozir yozayapman
+                const { operatorId: _opId, ...data } = upd;
+                return { ...rec, ...data };
+              })
+            };
+          });
+          setOperators(merged);
+          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(merged)); } catch (e) { /* ignore */ }
+        }
+
+        // Yangi jurnal yozuvlari
+        if (ch.logs.length > 0) {
+          setActivityLogs(prevLogs => {
+            const known = new Set(prevLogs.map(l => l.id));
+            const fresh = ch.logs.filter(l => !known.has(l.id));
+            if (fresh.length === 0) return prevLogs;
+            return [...fresh, ...prevLogs].slice(0, 500);
+          });
+        }
+      } catch (e) {
+        // Server vaqtincha javob bermadi - keyingi urinishda davom etadi
+      }
+    };
+
+    const timer = setInterval(tick, 10000);
+    return () => clearInterval(timer);
+  }, [dbMode]);
 
   // Theme effect hook
   useEffect(() => {
@@ -467,6 +589,11 @@ export default function App() {
       timestamp: formattedTimestamp
     };
 
+    // Neon rejimida jurnal serverga ham yoziladi
+    if (dbModeRef.current === 'neon') {
+      api.addLog(newLog).catch(err => console.warn('Jurnal serverga yozilmadi:', err));
+    }
+
     const updatedLogs = [newLog, ...activityLogs].slice(0, 500);
     return updatedLogs;
   };
@@ -569,6 +696,16 @@ export default function App() {
       saveToLocalStorage(updatedOperators, freshLogs);
       triggerNotification("Ma'lumotlar saqlandi! 💾");
 
+      // Neon: faqat shu bitta yozuvning o'zgargan maydoni yoziladi
+      if (dbModeRef.current === 'neon') {
+        recentEditsRef.current.set(recordId, Date.now());
+        apiSafe(api.updateRecord(recordId, field, value));
+        if (field === 'natija' || field === 'izoh') {
+          const changedRec = updatedRecords.find(r => r.id === recordId);
+          apiSafe(api.updateRecord(recordId, 'sana', changedRec?.sana || ''));
+        }
+      }
+
       // Telegram sending asynchronously (yangilangan yozuvdan o'qiladi)
       const lastCreatedLog = freshLogs[0];
       if (lastCreatedLog) {
@@ -600,6 +737,10 @@ export default function App() {
     saveToLocalStorage(updatedOperators, freshLogs);
     triggerNotification("Yangi mijoz muvaffaqiyatli qo'shildi!");
 
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.addRecord(selectedOpId, { ...newRec, id: newId }));
+    }
+
     // Telegram sending asynchronously
     const lastCreatedLog = freshLogs[0];
     if (lastCreatedLog) {
@@ -624,6 +765,10 @@ export default function App() {
     const freshLogs = logActivityLocal(targetOp.id, targetOp.name, deletedRecord.fish, 'Mijoz o\'chirildi', deletedRecord.fish, 'O\'chirildi');
     saveToLocalStorage(updatedOperators, freshLogs);
     triggerNotification("Mijoz ro'yxatdan o'chirildi.");
+
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.deleteRecord(recordId));
+    }
 
     // Telegram sending asynchronously
     const lastCreatedLog = freshLogs[0];
@@ -661,6 +806,10 @@ export default function App() {
     );
     saveToLocalStorage(updatedOperators, freshLogs);
     triggerNotification(`${newRecords.length} ta mijoz muvaffaqiyatli yuklandi!`);
+
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.bulkReplace(updatedOperators));
+    }
   };
 
   // Firestore'dan qo'lda import (lokal ma'lumotlar o'rniga yuklaydi)
@@ -672,6 +821,9 @@ export default function App() {
     const remoteOps = await importFromFirestore();
     if (remoteOps) {
       saveToLocalStorage(remoteOps);
+      if (dbModeRef.current === 'neon') {
+        apiSafe(api.bulkReplace(remoteOps));
+      }
       triggerNotification(`Firestore'dan ${remoteOps.length} ta operator import qilindi! ☁️`);
     } else {
       setSavingState('idle');
@@ -683,6 +835,9 @@ export default function App() {
   const handleResetDatabase = async () => {
     if (window.confirm("Barcha kiritilgan o'zgarishlar o'chib ketadi va boshlang'ich operator ma'lumotlari holatiga qaytariladi. Tasdiqlaysizmi?")) {
       saveToLocalStorage(initialOperators, []);
+      if (dbModeRef.current === 'neon') {
+        apiSafe(api.bulkReplace(initialOperators));
+      }
       triggerNotification("Ma'lumotlar bazasi dastlabki holatga muvaffaqiyatli qaytarildi.");
     }
   };
@@ -692,6 +847,9 @@ export default function App() {
     if (!newName.trim()) return;
     const updated = operators.map(op => op.id === opId ? { ...op, name: newName } : op);
     saveToLocalStorage(updated);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.upsertOperator({ id: opId, name: newName }));
+    }
     triggerNotification(`Operator nomi "${newName}" qilib o'zgartirildi.`);
   };
 
@@ -706,6 +864,9 @@ export default function App() {
     if (window.confirm(`Haqiqatan ham "${op.name}" operatorini jadvallari va barcha ${op.records.length} ta maktab ma'lumotlari bilan birga butunlay o'chirib tashlamoqchimisiz? Ushbu amal ortga qaytarilmaydi!`)) {
       const updated = operators.filter(o => o.id !== opId);
       saveToLocalStorage(updated);
+      if (dbModeRef.current === 'neon') {
+        apiSafe(api.deleteOperator(opId));
+      }
       if (selectedOpId === opId) {
         setSelectedOpId(updated[0].id);
       }
@@ -720,6 +881,9 @@ export default function App() {
     list[indexA] = list[indexB];
     list[indexB] = temp;
     saveToLocalStorage(list);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.reorderOperators(list.map(o => o.id)));
+    }
     triggerNotification("Operatorlar tartibi almashtirildi.");
   };
 
@@ -734,6 +898,9 @@ export default function App() {
     };
     const updated = [...operators, newOp];
     saveToLocalStorage(updated);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.upsertOperator({ id: newOpId, name, password: '123456', ord: updated.length - 1 }));
+    }
     setSelectedOpId(newOpId);
     triggerNotification(`Yangi operator: "${name}" qo'shildi.`);
   };
@@ -754,6 +921,9 @@ export default function App() {
     const [removed] = list.splice(fromIndex, 1);
     list.splice(toIndex, 0, removed);
     saveToLocalStorage(list);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.reorderOperators(list.map(o => o.id)));
+    }
     triggerNotification("Operatorlar tartiblandi.");
   };
 
@@ -881,6 +1051,9 @@ export default function App() {
     }
     const updated = operators.map(op => op.id === opId ? { ...op, password: pwd } : op);
     saveToLocalStorage(updated);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.upsertOperator({ id: opId, password: pwd }));
+    }
     const op = operators.find(o => o.id === opId);
     triggerNotification(`${op ? op.name : 'Operator'} paroli yangilandi.`);
   };
@@ -951,6 +1124,9 @@ export default function App() {
 
       const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Maktablar', 'Sana', 'Turli', bulkSanaInput);
       saveToLocalStorage(updated, freshLogs);
+      if (dbModeRef.current === 'neon') {
+        apiSafe(api.bulkReplace(updated));
+      }
       triggerNotification(`Barcha sanalar "${bulkSanaInput}" ga o'zgartirildi!`);
     }
   };
@@ -974,6 +1150,9 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Operatorlar', 'Statistika', 'Mavjud', 'Tozalandi (Nolga qaytarildi)');
     saveToLocalStorage(updated, freshLogs);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.bulkReplace(updated));
+    }
     triggerNotification("Barcha operatorlar progresslari muvaffaqiyatli tozalandi! 🧹");
   };
 
@@ -984,12 +1163,7 @@ export default function App() {
     }
     setSavingState('saving');
     try {
-      const querySnapshot = await getDocs(collection(db, 'messages'));
-      const batch = writeBatch(db);
-      querySnapshot.forEach(docSnap => {
-        batch.delete(docSnap.ref);
-      });
-      await batch.commit();
+      await api.clearMessages();
       setSavingState('saved');
       setTimeout(() => setSavingState('idle'), 1500);
       triggerNotification("Barcha chat xabarlari muvaffaqiyatli o'chirildi! 💬");
@@ -1015,6 +1189,9 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Operatorlar', 'Jadvallarni tozalash', 'Mavjud', 'Barcha maktablar o\'chirildi');
     saveToLocalStorage(updated, freshLogs);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.bulkReplace(updated));
+    }
     triggerNotification("Barcha operatorlar jadvallari butunlay tozalandi! 🗑️");
   };
 
@@ -1232,6 +1409,9 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha operatorlar', 'Smart Import', '', logMsg);
     saveToLocalStorage(finalOperators, freshLogs);
+    if (dbModeRef.current === 'neon') {
+      apiSafe(api.bulkReplace(finalOperators));
+    }
     triggerNotification("Ma'lumotlar jadvallarga muvaffaqiyatli yuklandi!");
     
     const reportStr = distributionReport
@@ -2787,6 +2967,13 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
 
           {/* Real Live Running Asia/Tashkent clock ticking dynamically down to minute and seconds */}
           <div className="px-4 py-3 bg-neutral-950 text-neutral-300 text-[10px] font-mono shrink-0 flex items-center justify-between sm:justify-end gap-2.5 border-t sm:border-t-0 border-neutral-800">
+            <span
+              className={dbMode === 'neon' ? 'text-sky-400 font-bold' : 'text-neutral-500 font-bold'}
+              title={dbMode === 'neon' ? 'Neon Postgres bulut bazasi ulangan' : 'Lokal rejim: faqat brauzer xotirasi (server.mjs ishga tushirilmagan)'}
+            >
+              {dbMode === 'neon' ? '☁️ Neon DB' : '💾 Lokal'}
+            </span>
+            <span className="text-neutral-600">|</span>
             <span className="text-[#00a372] font-extrabold font-mono">
               {tashkentTime || 'Yuklanmoqda...'}
             </span>
