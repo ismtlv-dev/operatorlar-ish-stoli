@@ -15,6 +15,7 @@ export const initialOperators: Operator[] = [
   { id: '6', name: 'Radjabova Sharabonu', password: '123456', records: [] },
   { id: '7', name: 'Igamnazarova Zebo', password: '123456', records: [] },
   { id: '8', name: 'Atabayeva Shaxnoza', password: '123456', records: [] },
+  { id: '9', name: 'Kamolova Dilsora', password: '123456', records: [] },
   { id: '10', name: 'Ravshanova Asal', password: '123456', records: [] },
   { id: '11', name: 'HAYDAROVA SHAXINABONU ISTAMOVNA', password: '123456', records: [] },
   { id: '12', name: 'ODILOVA GULNOZA OYBEK QIZI', password: '123456', records: [] },
