@@ -204,7 +204,13 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
                     <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR_LIGHT} />
                     <XAxis dataKey="name" stroke="#888" tick={{ fontSize: 11 }} />
                     <YAxis stroke="#888" tick={{ fontSize: 11 }} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Tooltip 
+                      contentStyle={TOOLTIP_STYLE} 
+                      labelFormatter={(label) => {
+                        const op = operatorData.find(o => o.name === label);
+                        return op ? op.fullName : label;
+                      }}
+                    />
                     <Legend iconSize={10} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="Ko'tarmadi" stackId="a" fill="#f97316" radius={[0, 0, 0, 0]} />
                     <Bar dataKey="O'chirilgan" stackId="a" fill="#737373" />
