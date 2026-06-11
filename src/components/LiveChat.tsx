@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../api';
 import { ChatMessage } from '../types';
 import { MessageSquare, X, Send, Megaphone, Bell, BellOff, Users } from 'lucide-react';
 
@@ -27,15 +26,9 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
   const hasInitializedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Polling ichida eskirgan (stale) state o'qimaslik uchun reflar
-  const soundEnabledRef = useRef(true);
-  const isOpenRef = useRef(false);
-  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
-  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
-
   // Web Audio API notification beep
   const playBeep = () => {
-    if (!soundEnabledRef.current) return;
+    if (!soundEnabled) return;
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -54,42 +47,71 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
     }
   };
 
-  // Neon API polling: 5 soniyada bir faqat yangi xabarlar so'raladi
+  // Poll real-time messages from API
   useEffect(() => {
-    let stopped = false;
-    let afterId = '';
+    let cancelled = false;
+    let timeoutId: any = null;
+    let errorCount = 0;
 
-    const tick = async () => {
-      try {
-        const incoming = await api.getMessages(afterId || undefined);
-        if (stopped) return;
-        if (incoming.length > 0) {
-          setMessages(prev => {
-            const known = new Set(prev.map(m => m.id));
-            const fresh = incoming.filter(m => !known.has(m.id));
-            if (fresh.length === 0) return prev;
-            return [...prev, ...fresh].slice(-200);
-          });
-          afterId = incoming[incoming.length - 1].id;
-
-          if (hasInitializedRef.current) {
-            const foreign = incoming.filter(m => m.senderId !== operatorId);
-            if (foreign.length > 0) {
-              playBeep();
-              if (!isOpenRef.current) setUnreadCount(prev => prev + foreign.length);
-            }
-          }
+    const fetchMessages = async () => {
+      if (document.hidden) {
+        if (!cancelled) {
+          timeoutId = setTimeout(fetchMessages, 3000);
         }
-        hasInitializedRef.current = true;
-      } catch (e) {
-        // Server o'chiq - keyingi urinishda davom etadi
+        return;
+      }
+      try {
+        const res = await fetch('/api/messages');
+        if (!res.ok) {
+          throw new Error(`HTTP status ${res.status}`);
+        }
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await res.text();
+          throw new Error(`Response not JSON: ${text.slice(0, 100)}`);
+        }
+        const data = await res.json();
+        errorCount = 0; // Reset on success
+
+        if (data.success && Array.isArray(data.messages) && !cancelled) {
+          const loaded = data.messages;
+          
+          setMessages(prevMessages => {
+            // Check if there are new messages
+            if (hasInitializedRef.current) {
+              const lastPrev = prevMessages[prevMessages.length - 1];
+              const lastLoaded = loaded[loaded.length - 1];
+              if (lastLoaded && (!lastPrev || lastLoaded.id !== lastPrev.id) && lastLoaded.senderId !== operatorId) {
+                playBeep();
+                if (!isOpen) setUnreadCount(prev => prev + 1);
+              }
+            } else {
+              hasInitializedRef.current = true;
+            }
+            return loaded;
+          });
+        }
+      } catch (err: any) {
+        errorCount++;
+        console.warn(`[Chat Poll Warning] ${err?.message || err}`);
+      } finally {
+        if (!cancelled) {
+          // Dynamic backoff to prevent rate-limiting: increment delay if hitting persistent errors
+          const delay = errorCount > 3 ? Math.min(30000, 3000 * Math.pow(1.5, errorCount - 3)) : 3000;
+          timeoutId = setTimeout(fetchMessages, delay);
+        }
       }
     };
 
-    tick();
-    const timer = setInterval(tick, 5000);
-    return () => { stopped = true; clearInterval(timer); };
-  }, [operatorId]);
+    fetchMessages();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [operatorId, isOpen, soundEnabled]);
 
   useEffect(() => {
     if (isOpen) {
@@ -127,13 +149,21 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
     };
 
     try {
-      // Optimistik: avval ekranda ko'rsatamiz, keyin serverga yuboramiz
-      setMessages(prev => [...prev, newMsg].slice(-200));
-      setInputText('');
-      setIsAnnouncement(false);
-      await api.sendMessage(newMsg);
+      const res = await fetch('/api/send-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMsg)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages(prev => [...prev, newMsg]);
+        setInputText('');
+        setIsAnnouncement(false);
+      } else {
+        throw new Error();
+      }
     } catch {
-      alert("Xabar yuborilmadi! Server bilan aloqa yo'q.");
+      alert("Xabar yuborilmadi!");
     }
   };
 

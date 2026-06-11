@@ -1,6 +1,8 @@
 {
-  "name": "Operatorlar Ish Stoli",
-  "description": "Operatorlar bo'yicha ma'lumotlar jadvallarini boshqarish, tahlil qilish va CSV export qilish uchun qulay va zamonaviy interfeys.",
+  "name": "operatorlar ",
+  "description": "",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -6,16 +6,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { db } from './firebase';
-import { collection, getDocs } from 'firebase/firestore';
-import { api } from './api';
 import { initialOperators } from './data';
-import { Operator, SchoolRecord, EditLog } from './types';
+import { Operator, SchoolRecord, EditLog, CallHistoryEntry } from './types';
 import { Stats } from './components/Stats';
 import { OperatorTable } from './components/OperatorTable';
 import { AnalyticsPanel } from './components/AnalyticsPanel';
 import { ExcelImport } from './components/ExcelImport';
+import { AdminDashboard } from './components/AdminDashboard';
 import { LiveChat } from './components/LiveChat';
+import { CallHistory } from './components/CallHistory';
+import { KanbanBoard } from './components/KanbanBoard';
+import { SchedulesPanel } from './components/SchedulesPanel';
+import { PricesPanel } from './components/PricesPanel';
 import { 
   FileSpreadsheet, 
   RefreshCw, 
@@ -38,7 +40,18 @@ import {
   Clock,
   LogOut,
   Sliders,
-  AlertTriangle
+  AlertTriangle,
+  Users,
+  Activity,
+  Trophy,
+  ArrowUpRight,
+  Trash2,
+  Edit2,
+  Send,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  FolderInput
 } from 'lucide-react';
 
 // Recharts components list for visual stats
@@ -97,12 +110,21 @@ const nameToHashtag = (name: string): string => {
     .replace(/\s+/g, '_');
 };
 
+// Formats operator name to Surname + First Name without patronymic (otchestvo)
+const formatOperatorName = (name: string): string => {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 2) return name;
+  return parts.slice(0, 2).join(' ');
+};
+
 // Dispatch asynchronous logging messages to Telegram Channel & Admin Alert Chat IDs
 const sendTelegramNotification = async (
   log: EditLog,
   schoolNo: number = 0,
   tel: string = '',
-  viloyat: string = ''
+  viloyat: string = '',
+  record?: SchoolRecord
 ) => {
   const token = localStorage.getItem('school_operators_tg_token') || (import.meta as any).env.VITE_TELEGRAM_BOT_TOKEN || '';
   const channelId = localStorage.getItem('school_operators_tg_channel') || (import.meta as any).env.VITE_TELEGRAM_CHAT_ID || '';
@@ -111,74 +133,161 @@ const sendTelegramNotification = async (
   if (!token) return;
 
   const hashtag = nameToHashtag(log.operatorName);
+  const esc = (text: string) => (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // 1. Regular log sending to Telegram Channel
-  if (channelId) {
-    const esc = (text: string) => (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const opNameStr = esc(log.operatorName);
-    const schoolNameStr = esc(log.schoolName);
-    const fieldStr = esc(log.field);
-    const oldValStr = esc(log.oldValue);
-    const newValStr = esc(log.newValue);
-    const timestampStr = esc(log.timestamp);
-    const viloyatStr = viloyat ? ` (${esc(viloyat)})` : '';
-
-    const regularMessage = `📝 <b>TIZIM ISH JURNALI</b>\n\n` +
-      `👤 <b>Operator:</b> ${opNameStr} (${hashtag})\n` +
-      `👤 <b>Mijoz:</b> ${schoolNameStr}${viloyatStr}\n` +
-      `🔧 <b>O'zgarish:</b> ${fieldStr}\n` +
-      `🔹 <b>Eski qiymat:</b> ${oldValStr}\n` +
-      `🔸 <b>Yangi qiymat:</b> ${newValStr}\n` +
-      `⏰ <b>Toshkent vaqti:</b> ${timestampStr}`;
-
-    try {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: channelId,
-          text: regularMessage,
-          parse_mode: 'HTML'
-        })
-      });
-    } catch (e) {
-      console.warn("Telegram channel delivery failed:", e);
+  // Format Tashkent time in "YYYY-MM-DD HH:mm:ss" style
+  const formatTashkentTime = (tsStr: string) => {
+    if (!tsStr) return '';
+    const parts = tsStr.split(' ');
+    if (parts.length === 2) {
+      const datePart = parts[0];
+      const timePart = parts[1];
+      const dateSubparts = datePart.split('.');
+      if (dateSubparts.length === 3) {
+        return `${dateSubparts[2]}-${dateSubparts[1]}-${dateSubparts[0]} ${timePart}`;
+      }
     }
-  }
+    return tsStr;
+  };
 
-  // 2. Alert sending to Admin if newValue/comments contain "qabul.bui.uz"
+  const formattedTime = formatTashkentTime(log.timestamp);
   const lowerNewVal = String(log.newValue || '').toLowerCase();
   const hasSpecialLink = lowerNewVal.includes('qabul.bui.uz');
 
-  if (hasSpecialLink && adminId) {
-    const esc = (text: string) => (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const opEscStr = esc(log.operatorName);
-    const schoolEscStr = schoolNo ? `<b>${schoolNo}-mijoz</b>` : `<b>${esc(log.schoolName)}</b>`;
-    const viloyatEscStr = viloyat ? ` (${esc(viloyat)})` : '';
-    const valEscStr = esc(log.newValue);
-    const stampEscStr = esc(log.timestamp);
-    const telEscStr = tel ? esc(tel) : 'Kiritilmagan';
+  const isOqiydi = lowerNewVal === "o'qiydi" || lowerNewVal === "oqiydi" || lowerNewVal.includes("o'qiydi") || lowerNewVal.includes("oqiydi");
+  const isShartnoma = lowerNewVal === "shartnoma berildi" || lowerNewVal.includes("shartnoma") || lowerNewVal.includes("tuzild") || lowerNewVal.includes("shartnomani tuzdi");
 
-    const adminMessage = `🚀 <b>YANGI HAMKORLIK LINKI!</b>\n\n` +
-      `👤 <b>Operator:</b> ${opEscStr} (${hashtag})\n` +
-      `👤 <b>Mijoz:</b> ${schoolEscStr}${viloyatEscStr}\n` +
-      `📞 <b>Telefoni:</b> ${telEscStr}\n\n` +
-      `<b>Ushbu operator (${opEscStr}) mazkur mijozga hamkorlik linkini yaratib berdi:</b>\n\n` +
-      `🔗 <code>${valEscStr}</code>\n\n` +
-      `⏰ <b>Vaqt:</b> ${stampEscStr}`;
+  const isSpecialStatus = (log.field === 'Natija (Holat)' || log.field === 'natija') && (isOqiydi || isShartnoma);
 
-    try {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: adminId,
-          text: adminMessage,
-          parse_mode: 'HTML'
-        })
-      });
-    } catch (e) {
-      console.warn("Telegram admin alert failed:", e);
+  if (isSpecialStatus) {
+    const statusLabel = isShartnoma ? 'shartnoma tuzildi' : "o'qiydi";
+    const actionPhrase = isShartnoma ? 'shartnomani tuzdi' : "o'qiydi deb belgiladi";
+    
+    const opNameStr = esc(formatOperatorName(log.operatorName));
+    const schoolNameStr = esc(log.schoolName);
+    const viloyatStr = viloyat ? ` (${esc(viloyat)})` : '';
+    
+    // Details of the student (bolaning barcha ma'lumotlari)
+    const rawTel1 = record ? record.tel : tel;
+    const rawTel2 = record ? record.telQoshimcha : '';
+    const birthDate = record && record.tugulganSana ? esc(record.tugulganSana) : 'Kiritilmagan';
+    const comment = record && record.izoh ? esc(record.izoh) : (log.field === 'Izoh' || log.field === 'izoh' ? esc(log.newValue) : 'Kiritilmagan');
+
+    const cleanNumber = (numStr: string) => {
+      if (!numStr) return '';
+      const digits = numStr.replace(/\D/g, '');
+      if (digits.startsWith('998') || digits.length > 9) return '+' + digits;
+      if (digits.length === 9) return '+998' + digits;
+      return '+' + digits;
+    };
+
+    const displayTel1 = rawTel1 ? cleanNumber(rawTel1) : 'Kiritilmagan';
+    const displayTel2 = rawTel2 ? cleanNumber(rawTel2) : 'Kiritilmagan';
+
+    const specialMessage = `📝 <b>TIZIM ISH JURNALI - (${statusLabel})</b>\n\n` +
+      `👤 <b>Operator:</b> ${opNameStr} (${hashtag}) ${actionPhrase}\n` +
+      `🏫 <b>Maktab:</b> - ${schoolNameStr}${viloyatStr}\n\n` +
+      `📌 <b>O'quvchi ma'lumotlari:</b>\n` +
+      `👤 <b>F.I.Sh:</b> ${schoolNameStr}\n` +
+      `📞 <b>Telefon:</b> ${displayTel1}\n` +
+      `📱 <b>Qo'shimcha tel:</b> ${displayTel2}\n` +
+      `🎂 <b>Tug'ilgan sana:</b> ${birthDate}\n` +
+      `💬 <b>Izoh:</b> ${comment}\n\n` +
+      `⏰ <b>Vaqti:</b> ${formattedTime}`;
+
+    if (channelId) {
+      try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: channelId,
+            text: specialMessage,
+            parse_mode: 'HTML'
+          })
+        });
+      } catch (e) {
+        console.warn("Telegram special channel alert failed:", e);
+      }
+    }
+
+    if (adminId) {
+      try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: adminId,
+            text: specialMessage,
+            parse_mode: 'HTML'
+          })
+        });
+      } catch (e) {
+        console.warn("Telegram special admin alert failed:", e);
+      }
+    }
+  } else {
+    // 1. Regular log sending to Telegram Channel
+    if (channelId) {
+      const opNameStr = esc(formatOperatorName(log.operatorName));
+      const schoolNameStr = esc(log.schoolName);
+      const fieldStr = esc(log.field);
+      const oldValStr = esc(log.oldValue);
+      const newValStr = esc(log.newValue);
+      const viloyatStr = viloyat ? ` (${esc(viloyat)})` : '';
+
+      const regularMessage = `📝 <b>TIZIM ISH JURNALI</b>\n\n` +
+        `👤 <b>Operator:</b> ${opNameStr} (${hashtag})\n` +
+        `🏫 <b>Maktab:</b> - ${schoolNameStr}${viloyatStr}\n` +
+        `🔧 <b>O'zgarish:</b> ${fieldStr}\n` +
+        `🔹 <b>Eski qiymat:</b> ${oldValStr}\n` +
+        `🔸 <b>Yangi qiymat:</b> ${newValStr}\n` +
+        `⏰ <b>Vaqti:</b> ${formattedTime}`;
+
+      try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: channelId,
+            text: regularMessage,
+            parse_mode: 'HTML'
+          })
+        });
+      } catch (e) {
+        console.warn("Telegram channel delivery failed:", e);
+      }
+    }
+
+    // 2. Alert sending to Admin if newValue/comments contain "qabul.bui.uz" (Legacy fallback filter)
+    if (hasSpecialLink && adminId) {
+      const opEscStr = esc(formatOperatorName(log.operatorName));
+      const schoolEscStr = schoolNo ? `<b>${schoolNo}-mijoz</b>` : `<b>${esc(log.schoolName)}</b>`;
+      const viloyatEscStr = viloyat ? ` (${esc(viloyat)})` : '';
+      const valEscStr = esc(log.newValue);
+      const telEscStr = tel ? esc(tel) : 'Kiritilmagan';
+
+      const adminMessage = `🚀 <b>YANGI HAMKORLIK LINKI!</b>\n\n` +
+        `👤 <b>Operator:</b> ${opEscStr} (${hashtag})\n` +
+        `🏫 <b>Maktab:</b> - ${schoolEscStr}${viloyatEscStr}\n` +
+        `📞 <b>Telefoni:</b> ${telEscStr}\n\n` +
+        `<b>Ushbu operator (${opEscStr}) mazkur mijozga hamkorlik linkini yaratib berdi:</b>\n\n` +
+        `🔗 <code>${valEscStr}</code>\n\n` +
+        `⏰ <b>Vaqt:</b> ${formattedTime}`;
+
+      try {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: adminId,
+            text: adminMessage,
+            parse_mode: 'HTML'
+          })
+        });
+      } catch (e) {
+        console.warn("Telegram admin alert failed:", e);
+      }
     }
   }
 };
@@ -222,6 +331,9 @@ export default function App() {
   // Activity log logs state
   const [activityLogs, setActivityLogs] = useState<EditLog[]>([]);
 
+  // Call history state for individual calls across operators
+  const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([]);
+
   // Date controller input
   const [bulkSanaInput, setBulkSanaInput] = useState('04.06.2026');
 
@@ -234,35 +346,93 @@ export default function App() {
 
   // Saving indicator states
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (savingState === 'saved') {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('uz-UZ', {
+        timeZone: 'Asia/Tashkent',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      setLastSavedTime(formatter.format(now));
+    }
+  }, [savingState]);
+
   const savingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Baza rejimi: 'neon' - Neon Postgres API orqali; 'local' - faqat localStorage
-  const [dbMode, setDbMode] = useState<'neon' | 'local'>('local');
-  const dbModeRef = useRef<'neon' | 'local'>('local');
-  const lastSyncRef = useRef<number>(0);
-  const operatorsRef = useRef<Operator[]>([]);
-  // Hozir tahrirlanayotgan yozuvlar - polling ularni ustidan yozmasligi uchun
-  const recentEditsRef = useRef<Map<string, number>>(new Map());
-
-  useEffect(() => { operatorsRef.current = operators; }, [operators]);
-
-  const switchDbMode = (mode: 'neon' | 'local') => {
-    dbModeRef.current = mode;
-    setDbMode(mode);
-  };
-
-  // Neon serveriga yozish - xato bo'lsa ogohlantirish (lokal nusxa baribir saqlangan)
-  const apiSafe = (p: Promise<unknown>) => {
-    p.catch(err => {
-      console.warn('Neon serveriga yozishda xato:', err);
-      triggerNotification("⚠️ Serverga yozilmadi (lokal nusxa saqlandi)");
-    });
-  };
+  const lastModifiedRef = useRef<number>(0);
 
   // Navigation & Dropup view states
   const [currentView, setCurrentView] = useState<'operator' | 'admin'>('operator');
   const [showDropup, setShowDropup] = useState(false);
-  const [operatorViewMode, setOperatorViewMode] = useState<'table' | 'charts'>('table');
+  const [operatorViewMode, setOperatorViewMode] = useState<'table' | 'kanban' | 'charts' | 'history' | 'callbacks' | 'prices'>('table');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
+
+  // Call timer stopwatch states
+  const [activeCallPhone, setActiveCallPhone] = useState<string | null>(null);
+  const [activeCallClientName, setActiveCallClientName] = useState<string>('');
+  const [callTimerSeconds, setCallTimerSeconds] = useState<number>(0);
+  const [isCallTimerRunning, setIsCallTimerRunning] = useState<boolean>(false);
+
+  // Callback alarm notifier states
+  const [activeReminderPopup, setActiveReminderPopup] = useState<SchoolRecord | null>(null);
+  const [acknowledgedReminderIds, setAcknowledgedReminderIds] = useState<Set<string>>(new Set());
+
+  // Function to synthesize custom chimes
+  const playReminderAudioChime = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.15); // E5
+      osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.3); // G5
+      
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.65);
+    } catch (e) {
+      console.warn("Audio warning blocked", e);
+    }
+  };
+
+  // Function to play Call Timer limit alarm beep
+  const playTimerWarningBeep = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(880.00, ctx.currentTime); // A5 High Warning beep
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {}
+  };
+
+  // Change Password Modal States
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState('');
 
   // Telegram integration states
   const [tgBotToken, setTgBotToken] = useState(() => localStorage.getItem('school_operators_tg_token') || '');
@@ -284,6 +454,7 @@ export default function App() {
   // Firestore faqat bir martalik import uchun ishlatiladi (lokal bo'sh bo'lsa).
   const LS_DATA_KEY = 'school_operators_data_backup';
   const LS_LOGS_KEY = 'school_operators_logs';
+  const LS_CALL_HISTORY_KEY = 'school_operators_call_history';
 
   const ensureRecordDates = (records: SchoolRecord[]): SchoolRecord[] => {
     return (records || []).map(r => {
@@ -312,159 +483,98 @@ export default function App() {
     }
   };
 
-  // Firestore'dan bir martalik import (onSnapshot emas — faqat getDocs)
-  const importFromFirestore = async (): Promise<Operator[] | null> => {
-    try {
-      const snapshot = await getDocs(collection(db, 'operators'));
-      if (snapshot.empty) return null;
-      const loadedOps: Operator[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        loadedOps.push({
-          ...data,
-          id: docSnap.id,
-          name: data.name || 'Noma\'lum operator',
-          password: data.password || '123456',
-          order: data.order ?? 999,
-          records: ensureRecordDates(data.records || [])
-        } as Operator);
-      });
-      loadedOps.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-      return loadedOps;
-    } catch (err) {
-      console.warn("Firestore'dan import bo'lmadi (offline yoki ruxsat yo'q):", err);
-      return null;
-    }
-  };
-
-  // Dastlabki yuklash tartibi:
-  //   1) Neon Postgres API (server.mjs) - asosiy umumiy baza
-  //   2) Neon bo'sh bo'lsa: localStorage -> Firestore -> initialOperators bilan to'ldiriladi
-  //   3) Server o'chiq bo'lsa: eski lokal rejim (localStorage)
+  // Dastlabki yuklash tartibi: Neon PostgreSQL Server API -> localStorage -> initialOperators
   useEffect(() => {
     let cancelled = false;
 
-    const init = async () => {
-      // 1) Neon API
+    // Load from backend API
+    const loadFromBackend = async () => {
       try {
-        const state = await api.getState();
-        if (cancelled) return;
-        if (state.operators.length > 0) {
-          const ops = state.operators.map(op => ({ ...op, records: ensureRecordDates(op.records || []) }));
-          setOperators(ops);
-          setActivityLogs(state.logs.slice(0, 500));
-          lastSyncRef.current = state.serverTime;
-          switchDbMode('neon');
-          console.log(`Neon'dan ${ops.length} ta operator yuklandi ☁️`);
-          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
-          return;
+        const resOps = await fetch('/api/operators');
+        const dataOps = await resOps.json();
+        if (dataOps.success && Array.isArray(dataOps.operators) && dataOps.operators.length > 0) {
+          if (!cancelled) {
+            setOperators(dataOps.operators);
+            localStorage.setItem(LS_DATA_KEY, JSON.stringify(dataOps.operators));
+          }
+        } else {
+          throw new Error("Invalid operators response");
         }
-        // Neon bo'sh - mavjud ma'lumot bilan birinchi marta to'ldiramiz
-        const seed = loadLocalOperators() || (await importFromFirestore()) || initialOperators;
-        if (cancelled) return;
-        await api.bulkReplace(seed);
-        setOperators(seed);
-        lastSyncRef.current = Date.now();
-        switchDbMode('neon');
-        console.log(`Neon bazasi ${seed.length} ta operator bilan to'ldirildi ☁️`);
-        try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(seed)); } catch (e) { /* ignore */ }
-        return;
       } catch (err) {
-        console.warn("Neon API ishlamayapti - lokal rejimga o'tildi:", err);
-      }
-
-      // 2) Lokal rejim (server o'chiq)
-      const localOps = loadLocalOperators();
-      if (localOps) {
-        setOperators(localOps);
-      } else {
-        const remoteOps = await importFromFirestore();
-        if (cancelled) return;
-        const ops = remoteOps || initialOperators;
-        if (remoteOps) {
-          console.log(`Firestore'dan ${remoteOps.length} ta operator import qilindi`);
+        console.warn("Failed to fetch from backend Postgres API, falling back:", err);
+        // Fallback to local only for offline/network issues
+        const localOps = loadLocalOperators();
+        if (localOps && !cancelled) {
+          setOperators(localOps);
+        } else if (!cancelled) {
+          setOperators(initialOperators);
         }
-        setOperators(ops);
-        try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
       }
-
-      // Ish jurnalini localStorage'dan yuklash
-      try {
-        const rawLogs = localStorage.getItem(LS_LOGS_KEY);
-        if (rawLogs) {
-          const parsedLogs = JSON.parse(rawLogs) as EditLog[];
-          if (Array.isArray(parsedLogs)) setActivityLogs(parsedLogs.slice(0, 500));
-        }
-      } catch (e) { /* ignore */ }
     };
 
-    init();
+    loadFromBackend();
+
+    // Fetch activity logs
+    fetch('/api/logs')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.logs) && !cancelled) {
+          setActivityLogs(d.logs);
+          localStorage.setItem(LS_LOGS_KEY, JSON.stringify(d.logs));
+        } else {
+          // fallback to local
+          const rawLogs = localStorage.getItem(LS_LOGS_KEY);
+          if (rawLogs && !cancelled) {
+            try {
+              setActivityLogs(JSON.parse(rawLogs));
+            } catch (e) {
+              console.warn("Failed to parse local logs", e);
+            }
+          }
+        }
+      })
+      .catch(() => {
+        const rawLogs = localStorage.getItem(LS_LOGS_KEY);
+        if (rawLogs && !cancelled) {
+          try {
+            setActivityLogs(JSON.parse(rawLogs));
+          } catch (e) {
+            console.warn("Failed to parse local logs", e);
+          }
+        }
+      });
+
+    // Fetch call history
+    fetch('/api/history')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.history) && !cancelled) {
+          setCallHistory(d.history);
+          localStorage.setItem(LS_CALL_HISTORY_KEY, JSON.stringify(d.history));
+        } else {
+          const rawHistory = localStorage.getItem(LS_CALL_HISTORY_KEY);
+          if (rawHistory && !cancelled) {
+            try {
+              setCallHistory(JSON.parse(rawHistory));
+            } catch (e) {
+              console.warn("Failed to parse local history", e);
+            }
+          }
+        }
+      })
+      .catch(() => {
+        const rawHistory = localStorage.getItem(LS_CALL_HISTORY_KEY);
+        if (rawHistory && !cancelled) {
+          try {
+            setCallHistory(JSON.parse(rawHistory));
+          } catch (e) {
+            console.warn("Failed to parse local history", e);
+          }
+        }
+      });
+
     return () => { cancelled = true; };
   }, []);
-
-  // Neon sinxronizatsiya: 10 soniyada bir faqat O'ZGARGAN qatorlar olinadi.
-  // 16 ta operator bir vaqtda ishlaganda bir-birining o'zgarishlarini ko'radi.
-  useEffect(() => {
-    if (dbMode !== 'neon') return;
-
-    const tick = async () => {
-      try {
-        const ch = await api.getChanges(lastSyncRef.current);
-        lastSyncRef.current = ch.serverTime;
-
-        const prev = operatorsRef.current;
-        const totalRecs = prev.reduce((s, o) => s + o.records.length, 0);
-
-        // Operator qo'shildi/o'chdi/qayta nomlandi yoki yozuvlar soni o'zgardi - to'liq qayta yuklash
-        if (ch.opCount !== prev.length || ch.recCount !== totalRecs || ch.operators.length > 0) {
-          const state = await api.getState();
-          const ops = state.operators.map(op => ({ ...op, records: ensureRecordDates(op.records || []) }));
-          setOperators(ops);
-          setActivityLogs(state.logs.slice(0, 500));
-          lastSyncRef.current = state.serverTime;
-          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
-          return;
-        }
-
-        // Faqat o'zgargan yozuvlarni joriy holatga birlashtirish
-        if (ch.records.length > 0) {
-          const now = Date.now();
-          const merged = prev.map(op => {
-            const recChanges = ch.records.filter(r => r.operatorId === op.id);
-            if (recChanges.length === 0) return op;
-            return {
-              ...op,
-              records: op.records.map(rec => {
-                const upd = recChanges.find(c => c.id === rec.id);
-                if (!upd) return rec;
-                const editedAt = recentEditsRef.current.get(rec.id);
-                if (editedAt && now - editedAt < 20000) return rec; // o'zim hozir yozayapman
-                const { operatorId: _opId, ...data } = upd;
-                return { ...rec, ...data };
-              })
-            };
-          });
-          setOperators(merged);
-          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(merged)); } catch (e) { /* ignore */ }
-        }
-
-        // Yangi jurnal yozuvlari
-        if (ch.logs.length > 0) {
-          setActivityLogs(prevLogs => {
-            const known = new Set(prevLogs.map(l => l.id));
-            const fresh = ch.logs.filter(l => !known.has(l.id));
-            if (fresh.length === 0) return prevLogs;
-            return [...fresh, ...prevLogs].slice(0, 500);
-          });
-        }
-      } catch (e) {
-        // Server vaqtincha javob bermadi - keyingi urinishda davom etadi
-      }
-    };
-
-    const timer = setInterval(tick, 10000);
-    return () => clearInterval(timer);
-  }, [dbMode]);
 
   // Theme effect hook
   useEffect(() => {
@@ -565,6 +675,65 @@ export default function App() {
     }
   }, [loggedInOpId, isAdminLoggedIn]);
 
+  // Dynamic Real-time Background Polling of History and Operators
+  useEffect(() => {
+    let active = true;
+
+    const pollHistory = async () => {
+      try {
+        const r = await fetch('/api/history');
+        const d = await r.json();
+        if (active && d.success && Array.isArray(d.history)) {
+          setCallHistory(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(d.history)) return prev;
+            localStorage.setItem(LS_CALL_HISTORY_KEY, JSON.stringify(d.history));
+            return d.history;
+          });
+        }
+      } catch (err) {
+        console.warn("Background history poll failed:", err);
+      }
+    };
+
+    const pollOperators = async () => {
+      // Skip background polling if there was any local modification in the last 5 seconds to prevent race conditions
+      if (lastModifiedRef.current && (Date.now() - lastModifiedRef.current < 5000)) {
+        return;
+      }
+
+      // Check if user is typing or double clicking to avoid active-state interference
+      const isUserEditing = document.activeElement && 
+                            (document.activeElement.tagName === 'INPUT' || 
+                             document.activeElement.tagName === 'TEXTAREA' ||
+                             document.activeElement.hasAttribute('contenteditable'));
+      if (isUserEditing) return;
+
+      try {
+        const r = await fetch('/api/operators');
+        const d = await r.json();
+        if (active && d.success && Array.isArray(d.operators)) {
+          setOperators(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(d.operators)) return prev;
+            localStorage.setItem(LS_DATA_KEY, JSON.stringify(d.operators));
+            return d.operators;
+          });
+        }
+      } catch (err) {
+        console.warn("Background operators poll failed:", err);
+      }
+    };
+
+    // Intervals
+    const histInterval = setInterval(pollHistory, 1500); // Poll history every 1.5s
+    const opsInterval = setInterval(pollOperators, 4000); // Poll operators data every 4s
+
+    return () => {
+      active = false;
+      clearInterval(histInterval);
+      clearInterval(opsInterval);
+    };
+  }, []);
+
   // Toast notifier
   const triggerNotification = (msg: string) => {
     setNotification(msg);
@@ -589,24 +758,23 @@ export default function App() {
       timestamp: formattedTimestamp
     };
 
-    // Neon rejimida jurnal serverga ham yoziladi
-    if (dbModeRef.current === 'neon') {
-      api.addLog(newLog).catch(err => console.warn('Jurnal serverga yozilmadi:', err));
-    }
-
     const updatedLogs = [newLog, ...activityLogs].slice(0, 500);
     return updatedLogs;
   };
 
-  // O'zgarishlarni saqlash — localStorage asosiy xotira
-  const saveToLocalStorage = (updated: Operator[], newLogs?: EditLog[]) => {
+  // O'zgarishlarni saqlash — localStorage asosiy xotira + Neon Postgres API
+  const saveToLocalStorage = (updated: Operator[], newLogs?: EditLog[], newHistory?: CallHistoryEntry[]) => {
     // 1. Avval React state — UI darhol yangilanadi
     setOperators(updated);
     if (newLogs) {
       setActivityLogs(newLogs);
     }
+    if (newHistory) {
+      setCallHistory(newHistory);
+    }
 
     setSavingState('saving');
+    lastModifiedRef.current = Date.now();
     if (savingTimeoutRef.current) {
       clearTimeout(savingTimeoutRef.current);
     }
@@ -617,6 +785,39 @@ export default function App() {
       if (newLogs) {
         localStorage.setItem(LS_LOGS_KEY, JSON.stringify(newLogs.slice(0, 500)));
       }
+      if (newHistory) {
+        localStorage.setItem(LS_CALL_HISTORY_KEY, JSON.stringify(newHistory));
+      }
+
+      // 3. PostgreSQL Server API orqali sinxronlash
+      fetch('/api/save-operators', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ operators: updated })
+      }).catch(err => console.error("Postgres operators save failed:", err));
+
+      if (newLogs && newLogs.length > 0) {
+        fetch('/api/logs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ logs: newLogs.slice(0, 500) })
+        }).catch(err => console.error("Postgres logs save failed:", err));
+      }
+
+      if (newHistory && newHistory.length > 0) {
+        fetch('/api/history', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ history: newHistory })
+        }).catch(err => console.error("Postgres history save failed:", err));
+      }
+
       savingTimeoutRef.current = setTimeout(() => {
         setSavingState('saved');
         savingTimeoutRef.current = setTimeout(() => {
@@ -633,7 +834,7 @@ export default function App() {
   // Update record fields (Natija, Izoh, Viloyat, Fish, etc.) with robust dual mode
   const handleUpdateRecord = async (
     recordId: string, 
-    field: 'viloyat' | 'fish' | 'tugulganSana' | 'tel' | 'telQoshimcha' | 'natija' | 'izoh', 
+    field: 'viloyat' | 'fish' | 'tugulganSana' | 'tel' | 'telQoshimcha' | 'natija' | 'izoh' | 'eslatmaVaqti' | 'eslatmaMatni', 
     value: string
   ) => {
     let oldVal = '';
@@ -693,18 +894,46 @@ export default function App() {
       const label = labelMap[field] || field;
       
       const freshLogs = logActivityLocal(opId, opName, schoolN, label, oldVal, value);
-      saveToLocalStorage(updatedOperators, freshLogs);
-      triggerNotification("Ma'lumotlar saqlandi! 💾");
 
-      // Neon: faqat shu bitta yozuvning o'zgargan maydoni yoziladi
-      if (dbModeRef.current === 'neon') {
-        recentEditsRef.current.set(recordId, Date.now());
-        apiSafe(api.updateRecord(recordId, field, value));
-        if (field === 'natija' || field === 'izoh') {
-          const changedRec = updatedRecords.find(r => r.id === recordId);
-          apiSafe(api.updateRecord(recordId, 'sana', changedRec?.sana || ''));
+      // Create a detailed call history log
+      let newHistory = [...callHistory];
+      if (field === 'natija' || field === 'izoh') {
+        const now = new Date();
+        const dStr = new Intl.DateTimeFormat('uz-UZ', {
+          timeZone: 'Asia/Tashkent',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        }).format(now);
+        const tStr = new Intl.DateTimeFormat('uz-UZ', {
+          timeZone: 'Asia/Tashkent',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).format(now);
+        const formattedTimestamp = `${dStr} ${tStr}`;
+
+        const targetRec = updatedRecords.find(r => r.id === recordId);
+        if (targetRec) {
+          const newCallEntry: CallHistoryEntry = {
+            id: `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            operatorId: opId,
+            operatorName: opName,
+            clientName: targetRec.fish,
+            clientTel: targetRec.tel,
+            clientViloyat: targetRec.viloyat,
+            status: targetRec.natija || '',
+            izoh: targetRec.izoh || '',
+            timestamp: formattedTimestamp,
+            date: dStr
+          };
+          newHistory = [newCallEntry, ...newHistory];
         }
       }
+
+      saveToLocalStorage(updatedOperators, freshLogs, newHistory);
+      triggerNotification("Ma'lumotlar saqlandi! 💾");
 
       // Telegram sending asynchronously (yangilangan yozuvdan o'qiladi)
       const lastCreatedLog = freshLogs[0];
@@ -713,7 +942,7 @@ export default function App() {
         const schoolNo = targetRec ? targetRec.no : 0;
         const schoolTel = targetRec ? targetRec.tel : '';
         const schoolViloyat = targetRec ? targetRec.viloyat : '';
-        sendTelegramNotification(lastCreatedLog, schoolNo, schoolTel, schoolViloyat);
+        sendTelegramNotification(lastCreatedLog, schoolNo, schoolTel, schoolViloyat, targetRec);
       }
     }
   };
@@ -737,14 +966,10 @@ export default function App() {
     saveToLocalStorage(updatedOperators, freshLogs);
     triggerNotification("Yangi mijoz muvaffaqiyatli qo'shildi!");
 
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.addRecord(selectedOpId, { ...newRec, id: newId }));
-    }
-
     // Telegram sending asynchronously
     const lastCreatedLog = freshLogs[0];
     if (lastCreatedLog) {
-      sendTelegramNotification(lastCreatedLog, newRec.no, newRec.tel, newRec.viloyat);
+      sendTelegramNotification(lastCreatedLog, newRec.no, newRec.tel, newRec.viloyat, { ...newRec, id: newId });
     }
   };
 
@@ -766,25 +991,84 @@ export default function App() {
     saveToLocalStorage(updatedOperators, freshLogs);
     triggerNotification("Mijoz ro'yxatdan o'chirildi.");
 
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.deleteRecord(recordId));
-    }
-
     // Telegram sending asynchronously
     const lastCreatedLog = freshLogs[0];
     if (lastCreatedLog) {
-      sendTelegramNotification(lastCreatedLog, deletedRecord.no, deletedRecord.tel, deletedRecord.viloyat);
+      sendTelegramNotification(lastCreatedLog, deletedRecord.no, deletedRecord.tel, deletedRecord.viloyat, deletedRecord);
     }
   };
 
-  // Import batch of records from Excel (Admin only)
+  // Import batch of records from Excel with Duplicate Check (Admin only)
   const handleImportRecords = (operatorId: string, newRecords: Omit<SchoolRecord, 'id'>[]) => {
     const targetOp = operators.find(op => op.id === operatorId);
     if (!targetOp) return;
 
+    // Normalize phone numbers for accurate comparison
+    const normalizePhone = (p: string) => {
+      if (!p) return "";
+      let clean = p.replace(/\D/g, ""); // keep digits only
+      if (clean.startsWith("998") && clean.length === 12) {
+        clean = clean.slice(3); // convert to standard 9-digit to match cleanly
+      }
+      return clean;
+    };
+
+    // Get all existing unique phone numbers and name+region fingerprints from database
+    const existingPhones = new Set<string>();
+    const existingFingerprints = new Set<string>();
+
+    operators.forEach(op => {
+      (op.records || []).forEach(r => {
+        const ph = normalizePhone(r.tel);
+        if (ph) existingPhones.add(ph);
+        const ph2 = normalizePhone(r.telQoshimcha);
+        if (ph2) existingPhones.add(ph2);
+        
+        const fp = `${(r.fish || '').trim().toLowerCase()}_${(r.viloyat || '').trim().toLowerCase()}`;
+        existingFingerprints.add(fp);
+      });
+    });
+
+    const importedRecords: Omit<SchoolRecord, 'id'>[] = [];
+    let fileDuplicateCount = 0;
+    let databaseDuplicateCount = 0;
+    const seenInFile = new Set<string>();
+
+    newRecords.forEach(rec => {
+      const p1 = normalizePhone(rec.tel);
+      const p2 = normalizePhone(rec.telQoshimcha);
+      const fp = `${(rec.fish || '').trim().toLowerCase()}_${(rec.viloyat || '').trim().toLowerCase()}`;
+
+      // 1. Check if it's duplicated inside the spreadsheet itself
+      const fileKey = p1 || fp;
+      if (seenInFile.has(fileKey)) {
+        fileDuplicateCount++;
+        return;
+      }
+      seenInFile.add(fileKey);
+
+      // 2. Check if duplicated in the PostgreSQL Database
+      const isDbDuplicate = (p1 && existingPhones.has(p1)) || 
+                            (p2 && existingPhones.has(p2)) || 
+                            (p1 && existingPhones.has(p2)) ||
+                            existingFingerprints.has(fp);
+
+      if (isDbDuplicate) {
+        databaseDuplicateCount++;
+        return;
+      }
+
+      importedRecords.push(rec);
+    });
+
+    if (importedRecords.length === 0) {
+      alert(`Yuklash to'xtatildi! Barcha ${newRecords.length} ta yozuv bazada yoki faylda DUBLIKAT deb topildi.\n\n- Fayl ichidagi dublikatlar: ${fileDuplicateCount} ta\n- Bazaga allaqachon kiritilganlari: ${databaseDuplicateCount} ta`);
+      return;
+    }
+
     const startingNo = targetOp.records.length > 0 ? Math.max(...targetOp.records.map(r => r.no)) + 1 : 1;
     
-    const formatted = newRecords.map((rec, idx) => ({
+    const formatted = importedRecords.map((rec, idx) => ({
       ...rec,
       no: startingNo + idx,
       id: `${operatorId}_${startingNo + idx}_${Date.now()}_${idx}`
@@ -799,45 +1083,27 @@ export default function App() {
     const freshLogs = logActivityLocal(
       operatorId, 
       targetOp.name, 
-      `${newRecords.length} ta mijoz`, 
+      `${importedRecords.length} ta mijoz`, 
       'Excel import', 
       '', 
-      `${newRecords.length} ta mijoz qo'shildi`
+      `${importedRecords.length} ta yangi mijoz yuklandi (Dublikatlar o'chirildi)`
     );
+
     saveToLocalStorage(updatedOperators, freshLogs);
-    triggerNotification(`${newRecords.length} ta mijoz muvaffaqiyatli yuklandi!`);
-
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.bulkReplace(updatedOperators));
-    }
+    
+    alert(`Import tugallandi! 🎉\n\n- Jami taqdim etilgan: ${newRecords.length} ta qator\n- Muvaffaqiyatli yuklandi: ${importedRecords.length} ta yangi mijoz\n- Fayl ichidagi ichki dublikatlar: ${fileDuplicateCount} ta (tashlab ketildi)\n- Bazadagi mavjud dublikatlar: ${databaseDuplicateCount} ta (tashlab ketildi)`);
+    triggerNotification(`${importedRecords.length} ta mijoz muvaffaqiyatli yuklandi! 🚀`);
   };
 
-  // Firestore'dan qo'lda import (lokal ma'lumotlar o'rniga yuklaydi)
-  const handleImportFromFirestore = async () => {
-    if (!window.confirm("Firestore'dagi ma'lumotlar hozirgi LOKAL ma'lumotlar O'RNIGA yuklanadi. Lokal kiritilgan natijalar yo'qolishi mumkin. Davom etasizmi?")) {
-      return;
-    }
-    setSavingState('saving');
-    const remoteOps = await importFromFirestore();
-    if (remoteOps) {
-      saveToLocalStorage(remoteOps);
-      if (dbModeRef.current === 'neon') {
-        apiSafe(api.bulkReplace(remoteOps));
-      }
-      triggerNotification(`Firestore'dan ${remoteOps.length} ta operator import qilindi! ☁️`);
-    } else {
-      setSavingState('idle');
-      alert("Firestore'dan ma'lumot olib bo'lmadi (baza bo'sh yoki ulanish xatosi). Lokal ma'lumotlar o'zgarmadi.");
-    }
-  };
-
-  // Reset database state in LocalStorage
+  // Reset database state in LocalStorage + PG Backend
   const handleResetDatabase = async () => {
     if (window.confirm("Barcha kiritilgan o'zgarishlar o'chib ketadi va boshlang'ich operator ma'lumotlari holatiga qaytariladi. Tasdiqlaysizmi?")) {
-      saveToLocalStorage(initialOperators, []);
-      if (dbModeRef.current === 'neon') {
-        apiSafe(api.bulkReplace(initialOperators));
+      try {
+        await fetch('/api/reset-records', { method: 'POST' });
+      } catch (err) {
+        console.warn("Failed to reset PG database records:", err);
       }
+      saveToLocalStorage(initialOperators, [], []);
       triggerNotification("Ma'lumotlar bazasi dastlabki holatga muvaffaqiyatli qaytarildi.");
     }
   };
@@ -847,9 +1113,6 @@ export default function App() {
     if (!newName.trim()) return;
     const updated = operators.map(op => op.id === opId ? { ...op, name: newName } : op);
     saveToLocalStorage(updated);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.upsertOperator({ id: opId, name: newName }));
-    }
     triggerNotification(`Operator nomi "${newName}" qilib o'zgartirildi.`);
   };
 
@@ -864,9 +1127,6 @@ export default function App() {
     if (window.confirm(`Haqiqatan ham "${op.name}" operatorini jadvallari va barcha ${op.records.length} ta maktab ma'lumotlari bilan birga butunlay o'chirib tashlamoqchimisiz? Ushbu amal ortga qaytarilmaydi!`)) {
       const updated = operators.filter(o => o.id !== opId);
       saveToLocalStorage(updated);
-      if (dbModeRef.current === 'neon') {
-        apiSafe(api.deleteOperator(opId));
-      }
       if (selectedOpId === opId) {
         setSelectedOpId(updated[0].id);
       }
@@ -881,9 +1141,6 @@ export default function App() {
     list[indexA] = list[indexB];
     list[indexB] = temp;
     saveToLocalStorage(list);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.reorderOperators(list.map(o => o.id)));
-    }
     triggerNotification("Operatorlar tartibi almashtirildi.");
   };
 
@@ -898,9 +1155,6 @@ export default function App() {
     };
     const updated = [...operators, newOp];
     saveToLocalStorage(updated);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.upsertOperator({ id: newOpId, name, password: '123456', ord: updated.length - 1 }));
-    }
     setSelectedOpId(newOpId);
     triggerNotification(`Yangi operator: "${name}" qo'shildi.`);
   };
@@ -921,9 +1175,6 @@ export default function App() {
     const [removed] = list.splice(fromIndex, 1);
     list.splice(toIndex, 0, removed);
     saveToLocalStorage(list);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.reorderOperators(list.map(o => o.id)));
-    }
     triggerNotification("Operatorlar tartiblandi.");
   };
 
@@ -1051,9 +1302,6 @@ export default function App() {
     }
     const updated = operators.map(op => op.id === opId ? { ...op, password: pwd } : op);
     saveToLocalStorage(updated);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.upsertOperator({ id: opId, password: pwd }));
-    }
     const op = operators.find(o => o.id === opId);
     triggerNotification(`${op ? op.name : 'Operator'} paroli yangilandi.`);
   };
@@ -1087,6 +1335,64 @@ export default function App() {
     setLoginPassword('');
     localStorage.removeItem('school_operators_current_op');
     triggerNotification("Tizimdan chiqdingiz.");
+  };
+
+  // Change Password Submission Handler
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordChangeError('');
+    setPasswordChangeSuccess('');
+
+    if (!newPasswordInput || !confirmPasswordInput) {
+      setPasswordChangeError("Yangi parolni kiriting va tasdiqlang!");
+      return;
+    }
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordChangeError("Yangi parollar bir xil emas!");
+      return;
+    }
+    if (newPasswordInput.length < 4) {
+      setPasswordChangeError("Yangi parol kamida 4 ta belgidan iborat bo'lishi kerak!");
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operatorId: loggedInOpId,
+          currentPassword: currentPasswordInput,
+          newPassword: newPasswordInput
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPasswordChangeSuccess("Parolingiz muvaffaqiyatli o'zgartirildi! 🔑");
+        
+        // Update operators state
+        const updatedOps = operators.map(op => 
+          op.id === loggedInOpId ? { ...op, password: newPasswordInput } : op
+        );
+        setOperators(updatedOps);
+        localStorage.setItem(LS_DATA_KEY, JSON.stringify(updatedOps));
+
+        // Reset fields
+        setCurrentPasswordInput('');
+        setNewPasswordInput('');
+        setConfirmPasswordInput('');
+        
+        // Close modal
+        setTimeout(() => {
+          setShowPasswordChangeModal(false);
+          setPasswordChangeSuccess('');
+        }, 1500);
+      } else {
+        setPasswordChangeError(data.error || "Xatolik yuz berdi!");
+      }
+    } catch (err) {
+      setPasswordChangeError("Server bilan bog'lanishda xatolik!");
+    }
   };
 
   // Password verification for Admin "Oper35Tm9WjDM"
@@ -1124,9 +1430,6 @@ export default function App() {
 
       const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Maktablar', 'Sana', 'Turli', bulkSanaInput);
       saveToLocalStorage(updated, freshLogs);
-      if (dbModeRef.current === 'neon') {
-        apiSafe(api.bulkReplace(updated));
-      }
       triggerNotification(`Barcha sanalar "${bulkSanaInput}" ga o'zgartirildi!`);
     }
   };
@@ -1150,9 +1453,6 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Operatorlar', 'Statistika', 'Mavjud', 'Tozalandi (Nolga qaytarildi)');
     saveToLocalStorage(updated, freshLogs);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.bulkReplace(updated));
-    }
     triggerNotification("Barcha operatorlar progresslari muvaffaqiyatli tozalandi! 🧹");
   };
 
@@ -1163,7 +1463,9 @@ export default function App() {
     }
     setSavingState('saving');
     try {
-      await api.clearMessages();
+      const res = await fetch('/api/clear-chat', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) throw new Error();
       setSavingState('saved');
       setTimeout(() => setSavingState('idle'), 1500);
       triggerNotification("Barcha chat xabarlari muvaffaqiyatli o'chirildi! 💬");
@@ -1189,9 +1491,6 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha Operatorlar', 'Jadvallarni tozalash', 'Mavjud', 'Barcha maktablar o\'chirildi');
     saveToLocalStorage(updated, freshLogs);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.bulkReplace(updated));
-    }
     triggerNotification("Barcha operatorlar jadvallari butunlay tozalandi! 🗑️");
   };
 
@@ -1409,9 +1708,6 @@ export default function App() {
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha operatorlar', 'Smart Import', '', logMsg);
     saveToLocalStorage(finalOperators, freshLogs);
-    if (dbModeRef.current === 'neon') {
-      apiSafe(api.bulkReplace(finalOperators));
-    }
     triggerNotification("Ma'lumotlar jadvallarga muvaffaqiyatli yuklandi!");
     
     const reportStr = distributionReport
@@ -1504,6 +1800,54 @@ export default function App() {
   const globalResults = getGlobalSearchResults();
   const activeOperator = operators.find(op => op.id === selectedOpId);
 
+  // ===== INTERACTIVE TIME MONITORING OPERATIONS =====
+  
+  // 1. Calling Stopwatch effect loop
+  useEffect(() => {
+    let timerId: any = null;
+    if (isCallTimerRunning) {
+      timerId = setInterval(() => {
+        setCallTimerSeconds(prev => {
+          const nextVal = prev + 1;
+          // Check limit warning at 5 minutes (300s)
+          if (nextVal > 0 && nextVal === 300) {
+            playTimerWarningBeep();
+            triggerNotification("⚠️ Suhbat 5 daqiqaga yetdi! Suhbatni yakunlash tavsiya etiladi.");
+          }
+          return nextVal;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [isCallTimerRunning]);
+
+  // 2. Real-time Scheduled Reminder Alarms checker
+  useEffect(() => {
+    if (!activeOperator) return;
+
+    const checkAlarmsInterval = setInterval(() => {
+      const now = new Date();
+      const tzOffsetMin = now.getTimezoneOffset();
+      const localAdjusted = new Date(now.getTime() - (tzOffsetMin * 60000));
+      const localISOStr = localAdjusted.toISOString().slice(0, 16);
+
+      activeOperator.records.forEach(rec => {
+        if (rec.eslatmaVaqti && rec.eslatmaVaqti.trim() !== '') {
+          if (rec.eslatmaVaqti <= localISOStr && !acknowledgedReminderIds.has(rec.id)) {
+            if (!activeReminderPopup || activeReminderPopup.id !== rec.id) {
+              setActiveReminderPopup(rec);
+              playReminderAudioChime();
+            }
+          }
+        }
+      });
+    }, 10000);
+
+    return () => clearInterval(checkAlarmsInterval);
+  }, [activeOperator, acknowledgedReminderIds, activeReminderPopup]);
+
   // Admin barcha operatorlarni ko'radi; oddiy operator faqat o'zini ko'radi
   const visibleOperators = isAdminLoggedIn ? operators : operators.filter(op => op.id === loggedInOpId);
   const loggedInOperator = operators.find(op => op.id === loggedInOpId);
@@ -1517,13 +1861,19 @@ export default function App() {
 
   // Filter logs based on search string
   const filteredLogs = activityLogs.filter(log => {
+    if (!log) return false;
     const term = adminLogSearch.toLowerCase();
+    const opVal = String(log.operatorName || '').toLowerCase();
+    const schVal = String(log.schoolName || '').toLowerCase();
+    const fldVal = String(log.field || '').toLowerCase();
+    const newVal = String(log.newValue || '').toLowerCase();
+    const oldVal = String(log.oldValue || '').toLowerCase();
     return (
-      log.operatorName.toLowerCase().includes(term) ||
-      log.schoolName.toLowerCase().includes(term) ||
-      log.field.toLowerCase().includes(term) ||
-      log.newValue.toLowerCase().includes(term) ||
-      log.oldValue.toLowerCase().includes(term)
+      opVal.includes(term) ||
+      schVal.includes(term) ||
+      fldVal.includes(term) ||
+      newVal.includes(term) ||
+      oldVal.includes(term)
     );
   });
 
@@ -1618,7 +1968,7 @@ export default function App() {
                 <input
                   type="password"
                   placeholder="Xavfsizlik paroli..."
-                  className="w-full p-2 text-xs bg-neutral-850 text-neutral-100 rounded-lg border border-neutral-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full p-2 text-xs bg-neutral-800 text-neutral-100 rounded-lg border border-neutral-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   value={adminPasswordInput}
                   onChange={(e) => setAdminPasswordInput(e.target.value)}
                   autoFocus
@@ -1676,7 +2026,14 @@ export default function App() {
             ) : (
               <>
                 <CheckSquare size={13} className="text-emerald-500 shrink-0" />
-                <span className="tracking-wide">Barchasi saqlandi ✅</span>
+                <div className="flex items-center gap-1">
+                  <span className="tracking-wide">Barchasi saqlandi ✅</span>
+                  {lastSavedTime && (
+                    <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono font-medium flex items-center gap-0.5 ml-1">
+                      <Clock size={10} /> {lastSavedTime}
+                    </span>
+                  )}
+                </div>
               </>
             )}
           </motion.div>
@@ -1706,12 +2063,32 @@ export default function App() {
             <div className="flex items-center gap-2 md:hidden">
               <button
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className="p-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-amber-400 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 text-neutral-650 dark:text-amber-400 transition-colors text-[10px] font-black"
                 title={theme === 'dark' ? "Kunduzgi rejim" : "Tungi rejim"}
               >
-                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                {theme === 'dark' ? (
+                  <>
+                    <Sun size={13} />
+                    <span>Kun</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon size={13} className="text-neutral-550" />
+                    <span>Tun</span>
+                  </>
+                )}
               </button>
             </div>
+          </div>
+
+          {/* Middle Decorative Text / Edu info */}
+          <div className="hidden md:flex items-center gap-3">
+            {lastSavedTime && (
+              <div className="flex items-center gap-1.5 py-1.5 px-3 bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200/60 dark:border-neutral-700/60 rounded-full select-none text-[11px] font-bold text-neutral-600 dark:text-neutral-400">
+                <Clock size={11} className="text-emerald-500 animate-pulse" />
+                <span>Saqlandi: {lastSavedTime}</span>
+              </div>
+            )}
           </div>
 
           {/* Quick Stats Banner & Actions */}
@@ -1720,24 +2097,50 @@ export default function App() {
             {/* Theme switcher button */}
             <button
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="p-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-600 dark:text-amber-400 border border-neutral-250 dark:border-neutral-700 rounded-md transition-colors cursor-pointer"
-              title={theme === 'dark' ? "Kunduzgi rejim" : "Tungi rejim"}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-700 dark:text-amber-400 border border-neutral-250 dark:border-neutral-700 rounded-md transition-colors cursor-pointer text-xs font-black"
+              title={theme === 'dark' ? "Kunduzgi rejim (Kun)" : "Tungi rejim (Tun)"}
             >
-              {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+              {theme === 'dark' ? (
+                <>
+                  <Sun size={13} />
+                  <span>Kun</span>
+                </>
+              ) : (
+                <>
+                  <Moon size={13} className="text-neutral-500" />
+                  <span>Tun</span>
+                </>
+              )}
             </button>
 
             {/* Logged-in operator badge + logout */}
             {loggedInOperator && !isAdminLoggedIn && (
-              <div className="flex items-center gap-2 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md px-2.5 py-1">
-                <UserCheck size={14} className="text-emerald-500" />
-                <span className="text-xs font-bold text-neutral-700 dark:text-neutral-200 truncate max-w-[140px]">{loggedInOperator.name}</span>
-                <button
-                  onClick={handleOperatorLogout}
-                  className="ml-1 px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold flex items-center gap-1 transition-colors"
-                  title="Tizimdan chiqish"
-                >
-                  <LogOut size={11} /> Chiqish
-                </button>
+              <div className="flex items-center gap-2 select-none">
+                {/* Name Box */}
+                <div className="flex items-center gap-1.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-250 dark:border-neutral-700 rounded-lg px-3 py-1.5 shadow-xxs">
+                  <UserCheck size={13} className="text-emerald-500 shrink-0" />
+                  <span className="text-xs font-black text-neutral-700 dark:text-neutral-200">
+                    {formatOperatorName(loggedInOperator.name)}
+                  </span>
+                </div>
+                
+                {/* Password and Logout Buttons - separate, clear gap */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setShowPasswordChangeModal(true)}
+                    className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-605 text-white rounded-lg text-[10px] font-black flex items-center gap-0.5 transition-all shadow-xs hover:shadow-sm active:scale-95 cursor-pointer"
+                    title="Parolni o'zgartirish"
+                  >
+                    🔑 Parol
+                  </button>
+                  <button
+                    onClick={handleOperatorLogout}
+                    className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-705 text-white rounded-lg text-[10px] font-black flex items-center gap-1 transition-all shadow-xs hover:shadow-sm active:scale-95 cursor-pointer"
+                    title="Tizimdan chiqish"
+                  >
+                    <LogOut size={11} /> Chiqish
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1842,774 +2245,49 @@ export default function App() {
 
         {/* Administrator Dashboard view (Rendered conditionally on top if logged in) */}
         {isAdminLoggedIn && currentView === 'admin' && (
-          <div className="bg-white dark:bg-neutral-950 p-4 rounded-xl border-2 border-emerald-600 dark:border-emerald-800 shadow-md">
-            <div className="border-b border-neutral-200 dark:border-neutral-800 pb-3 mb-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div className="p-1 px-2.2 text-white bg-emerald-600 rounded text-xs font-bold font-mono">
-                  ADMIN PANEL
-                </div>
-                <h2 className="text-sm font-extrabold text-neutral-900 dark:text-white">
-                  Strategik Boshqaruv Markazi (Oper35Tm9WjDM)
-                </h2>
-              </div>
-
-              {/* Inside admin control tab panels */}
-              <div className="flex flex-wrap gap-1.5 items-center">
-                <button
-                  onClick={() => setActiveAdminTab('stats')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'stats' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  Operatorlar progressi
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('topup')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'topup' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  Yuklash & To'ldirish (40 talik balans)
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('logs')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'logs' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  Ish Jurnali (Soat, Minut, Sekund)
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('settings')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'settings' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  ⚙️ Tizim Sozlamalari
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('operators_list')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'operators_list' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  👥 Operatorlar (Rename)
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('analytics')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'analytics' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  📊 Grafik Tahlillar
-                </button>
-                <button
-                  onClick={() => setActiveAdminTab('excel_import')}
-                  className={`px-3 py-1 rounded text-xs font-bold transition-all ${activeAdminTab === 'excel_import' ? 'bg-emerald-600 text-white' : 'bg-neutral-150 text-neutral-700 dark:bg-neutral-850 dark:text-neutral-300 hover:bg-neutral-200'}`}
-                >
-                  📂 Excel Import
-                </button>
-                <span className="text-neutral-300 dark:text-neutral-800 mx-1">|</span>
-                <button
-                  onClick={() => {
-                    setIsAdminLoggedIn(false);
-                    setCurrentView('operator');
-                    localStorage.removeItem('school_operators_admin_status');
-                    triggerNotification("Admin rejimi yopildi.");
-                  }}
-                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold flex items-center gap-1 transition-colors"
-                  title="Admin panelni yopish va chiqish"
-                >
-                  Chiqish 🚪
-                </button>
-              </div>
-            </div>
-
-            {/* TAB CONTENT: Operator stats */}
-            {activeAdminTab === 'stats' && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3.5">
-                  {operators.map(op => {
-                    const total = op.records.length;
-                    const kotarmadi = op.records.filter(r => r.natija === "Ko'tarmadi").length;
-                    const ochirilgan = op.records.filter(r => r.natija === "O'chirilgan").length;
-                    const oylabKoradi = op.records.filter(r => r.natija === "O'ylab ko'radi").length;
-                    const maslahatQiladi = op.records.filter(r => r.natija === "Maslahat qiladi").length;
-                    const xatoRaqam = op.records.filter(r => r.natija === "Xato raqam").length;
-                    const oqimaydi = op.records.filter(r => r.natija === "O'qimaydi").length;
-                    const oqiydi = op.records.filter(r => r.natija === "O'qiydi").length;
-                    const shartnomaBerildi = op.records.filter(r => r.natija === "Shartnoma berildi").length;
-                    const kutilmoqda = op.records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
-                    const processed = total - kutilmoqda;
-                    const progressPerc = total ? Math.round((processed / total) * 100) : 0;
-
-                    return (
-                      <div key={op.id} className="p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 select-none">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-xs text-neutral-800 dark:text-neutral-200 truncate pr-1 max-w-[140px]">{op.name}</span>
-                          <span className="text-[10px] font-mono font-bold text-emerald-600">{progressPerc}%</span>
-                        </div>
-                        
-                        {/* Micro bar indicator */}
-                        <div className="w-full bg-neutral-200 dark:bg-neutral-700 h-1.5 rounded-full overflow-hidden">
-                          <div className="bg-emerald-500 h-full" style={{ width: `${progressPerc}%` }}></div>
-                        </div>
-
-                        <div className="grid grid-cols-9 gap-0.5 text-[8px] font-semibold text-center mt-2.5">
-                          <div className="bg-orange-50 dark:bg-orange-950/25 p-1 rounded font-mono text-orange-700 dark:text-orange-400" title="Ko'tarmadi">
-                            {kotarmadi}📞
-                          </div>
-                          <div className="bg-neutral-100 dark:bg-neutral-800 p-1 rounded font-mono text-neutral-600 dark:text-neutral-400" title="O'chirilgan">
-                            {ochirilgan}📴
-                          </div>
-                          <div className="bg-yellow-50 dark:bg-yellow-950/25 p-1 rounded font-mono text-yellow-700 dark:text-yellow-400" title="O'ylab ko'radi">
-                            {oylabKoradi}🤔
-                          </div>
-                          <div className="bg-sky-50 dark:bg-sky-950/25 p-1 rounded font-mono text-sky-700 dark:text-sky-400" title="Maslahat qiladi">
-                            {maslahatQiladi}👥
-                          </div>
-                          <div className="bg-rose-50 dark:bg-rose-950/25 p-1 rounded font-mono text-rose-700 dark:text-rose-400" title="Xato raqam">
-                            {xatoRaqam}❌
-                          </div>
-                          <div className="bg-red-50 dark:bg-red-950/25 p-1 rounded font-mono text-red-700 dark:text-red-400" title="O'qimaydi">
-                            {oqimaydi}🚫
-                          </div>
-                          <div className="bg-indigo-50 dark:bg-indigo-950/25 p-1 rounded font-mono text-indigo-700 dark:text-indigo-400" title="O'qiydi">
-                            {oqiydi}🎓
-                          </div>
-                          <div className="bg-emerald-50 dark:bg-emerald-950/25 p-1 rounded font-mono text-emerald-700 dark:text-emerald-450" title="Shartnoma berildi">
-                            {shartnomaBerildi}📄
-                          </div>
-                          <div className="bg-stone-100 dark:bg-neutral-800 p-1 rounded font-mono text-neutral-500 dark:text-neutral-500" title="Kutilmoqda">
-                            {kutilmoqda}⏳
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Status distribution Bar Chart using recharts */}
-                <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 border-b border-neutral-100 dark:border-neutral-800 pb-3">
-                    <div>
-                      <h3 className="text-xs font-bold text-neutral-800 dark:text-neutral-100 uppercase tracking-wider flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Barcha Operatorlar Bo'yicha Holat (Natija) Taqsimoti
-                      </h3>
-                      <p className="text-[10px] text-neutral-500 mt-0.5">Tezkor vizual tahlil va umumiy hisobotlar diagrammasi</p>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 text-[10px] bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-3 py-1 rounded-md font-medium text-neutral-500">
-                      <span>Jami yozuvlar: <strong>{operators.reduce((sum, op) => sum + op.records.length, 0)} ta</strong></span>
-                    </div>
-                  </div>
-
-                  <div className="h-64 sm:h-72 w-full text-[10px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart 
-                        data={[
-                          { name: "Ko'tarmadi 📞", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Ko'tarmadi").length, 0), fill: '#f97316' },
-                          { name: "O'chirilgan 📴", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'chirilgan").length, 0), fill: '#737373' },
-                          { name: "O'ylab ko'radi 🤔", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'ylab ko'radi").length, 0), fill: '#eab308' },
-                          { name: "Maslahat qiladi 👥", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Maslahat qiladi").length, 0), fill: '#0ea5e9' },
-                          { name: "Xato raqam ❌", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Xato raqam").length, 0), fill: '#f43f5e' },
-                          { name: "O'qimaydi 🚫", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'qimaydi").length, 0), fill: '#ef4444' },
-                          { name: "O'qiydi 🎓", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'qiydi").length, 0), fill: '#6366f1' },
-                          { name: "Shartnoma berildi 📄", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Shartnoma berildi").length, 0), fill: '#10b981' },
-                          { name: "Kutilmoqda ⏳", soni: operators.reduce((acc, op) => acc + op.records.filter(r => !r.natija || r.natija === '' || r.natija === 'Kutilmoqda').length, 0), fill: '#a3a3a3' }
-                        ]} 
-                        margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#262626' : '#e5e5e5'} vertical={false} />
-                        <XAxis 
-                          dataKey="name" 
-                          stroke={theme === 'dark' ? '#a3a3a3' : '#525252'} 
-                          fontSize={9} 
-                          tickLine={false} 
-                          axisLine={false} 
-                        />
-                        <YAxis 
-                          stroke={theme === 'dark' ? '#a3a3a3' : '#525252'} 
-                          fontSize={10} 
-                          tickLine={false} 
-                          axisLine={false} 
-                        />
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: theme === 'dark' ? '#151515' : '#ffffff', 
-                            borderColor: theme === 'dark' ? '#262626' : '#e5e5e5',
-                            borderRadius: '8px',
-                            color: theme === 'dark' ? '#ffffff' : '#000000',
-                            fontWeight: '600',
-                            fontSize: '11px'
-                          }}
-                          cursor={{ fill: theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)' }}
-                        />
-                        <Bar dataKey="soni" radius={[6, 6, 0, 0]} barSize={44}>
-                          <LabelList dataKey="soni" position="top" fill={theme === 'dark' ? '#e5e5e5' : '#171717'} fontSize={11} fontWeight="bold" />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Top-up / Refill to 40 Balance with Smart File & Text inputs */}
-            {activeAdminTab === 'topup' && (
-              <div className="text-xs space-y-4">
-                <p className="text-neutral-500 font-medium">
-                  Kunlik jadvallarni zaxiralash va unikal to'ldirish tizimi. Hujjat yuklaganingizda yoki matn kiritganingizda tizim buni barcha 10 nafar operatorlarga aqlli ravishda tarqatadi. Jadvallardagi kutilayotgan ("Kutilmoqda") maktablar soni qayta <strong className="text-emerald-600 dark:text-emerald-400">aynan 40 ta</strong> bo'lguncha to'ldiriladi. Ortiqchalari zaxira sifatida qo'shiladi! <strong className="text-rose-600">Takroriy ma'lumot tushishi 100% cheklangan!</strong>
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Option 1: File Uploader */}
-                  <div className="p-4 border border-dashed border-neutral-300 dark:border-neutral-800 rounded bg-neutral-50 dark:bg-neutral-900 flex flex-col justify-between">
-                    <div>
-                      <h4 className="font-bold text-neutral-800 dark:text-white flex items-center gap-1 mb-1">
-                        📁 Fayl yuklash (Excel, CSV, JSON)
-                      </h4>
-                      <p className="text-[10px] text-neutral-400 mb-3">
-                        Hujjat faylini tanlang (.xlsx, .xls, .csv, .tsv, .json)
-                      </p>
-                      
-                      <input
-                        type="file"
-                        accept=".xlsx,.xls,.csv,.tsv,.json,text/plain"
-                        onChange={handleFileUpload}
-                        className="block w-full text-xs text-neutral-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-bold file:bg-[#00a372] file:text-white hover:file:bg-[#008c61] cursor-pointer"
-                      />
-                    </div>
-                    
-                    <div className="text-[9px] text-neutral-400 mt-2 italic">
-                      Dastur yuklangan barcha satrlarni takrorlanmaslikka filtrlab chiqadi va jadvallarga teng taqsimlaydi.
-                    </div>
-                  </div>
-
-                  {/* Option 2: Copy paste from sheets */}
-                  <div className="md:col-span-2 p-4 border border-neutral-200 dark:border-neutral-800 rounded bg-neutral-50 dark:bg-neutral-900">
-                    <h4 className="font-bold text-neutral-800 dark:text-white flex items-center gap-1 mb-1">
-                      📝 Google Sheets / Excel'dan nusxa yuklash
-                    </h4>
-                    <p className="text-[10px] text-neutral-400 mb-2">
-                      Ketma-ketlik: Tuman, Maktab nomi, Direktor F.I.Sh, Tel raqami.
-                    </p>
-                    <textarea
-                      className="w-full h-24 p-2 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-800 rounded font-mono placeholder-neutral-500 text-[10px] focus:outline-none"
-                      placeholder="Tashkent	99-maktab	Sirojov G.	998901234567
-Samarqand	12-maktab	Aliyev Q.	998911234567"
-                      value={bulkDataInput}
-                      onChange={(e) => setBulkDataInput(e.target.value)}
-                    />
-                    <div className="flex justify-end mt-2">
-                      <button
-                        onClick={handleBulkRefillOperator}
-                        className="px-4 py-1.5 bg-[#00a372] hover:bg-[#008c61] text-white font-bold rounded text-xs flex items-center gap-1 transition-colors"
-                      >
-                        Matndan tahlil qilib taqsimlash ⚡
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-2 border border-blue-200 bg-blue-50/50 dark:border-neutral-800 dark:bg-neutral-900/40 rounded text-[10px] text-neutral-500 font-serif flex items-start gap-2">
-                  <Info size={13} className="text-emerald-500" />
-                  <span>
-                    <strong>Aqlli Unikal Taqsimot mexanizmi:</strong> Har bir operatorning kutilayotgan ("Kutilmoqda") maktablari soni jami 40 taga yetkaziladi. Hech qanday takroriy maktab yuklanmaydi, bitta maktab faqat bitta operatorga tushadi, jadvallar qayta unikal statusda yangilanadi.
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Interactive Seconds-level Modification Logs Feed */}
-            {activeAdminTab === 'logs' && (
-              <div className="text-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-neutral-600 dark:text-neutral-400">
-                    Real vaqtdagi operatorlar faoliyati (Oxirgi 1000 ta tahrirlashlar):
-                  </span>
-                  
-                  {/* Inline search inside logs */}
-                  <input
-                    type="text"
-                    placeholder="Jurnalni qidirish..."
-                    className="p-1 px-2.5 bg-neutral-50 dark:bg-neutral-900 border border-neutral-350 dark:border-neutral-700 rounded text-xs w-48 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    value={adminLogSearch}
-                    onChange={(e) => setAdminLogSearch(e.target.value)}
-                  />
-                </div>
-
-                <div className="bg-neutral-50 dark:bg-neutral-900 rounded border border-neutral-300 dark:border-neutral-800 max-h-40 overflow-y-auto">
-                  <table className="w-full border-collapse text-left text-[10px] font-mono whitespace-nowrap">
-                    <thead>
-                      <tr className="bg-neutral-150 dark:bg-neutral-950 border-b border-stone-200 dark:border-neutral-800">
-                        <th className="p-2 font-bold w-36">Vaqti (Sekundigacha)</th>
-                        <th className="p-2 font-bold w-40">Kim tomondan (Operator)</th>
-                        <th className="p-2 font-bold w-44">Tahrirlangan Muassasa</th>
-                        <th className="p-2 font-bold w-20">Ustun</th>
-                        <th className="p-2 font-bold">Eski Qiymati</th>
-                        <th className="p-2 font-bold">Yangi Qiymat</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
-                      {filteredLogs.length > 0 ? (
-                        filteredLogs.map(log => (
-                          <tr key={log.id} className="hover:bg-amber-500/10 transition-colors">
-                            <td className="p-2 font-semibold text-emerald-600 dark:text-emerald-400">{log.timestamp}</td>
-                            <td className="p-2 font-bold">{log.operatorName}</td>
-                            <td className="p-2 text-neutral-600 dark:text-neutral-350">{log.schoolName}</td>
-                            <td className="p-2 text-indigo-600 dark:text-indigo-400">{log.field}</td>
-                            <td className="p-2 truncate max-w-[120px] text-neutral-450">{log.oldValue}</td>
-                            <td className="p-2 font-bold text-neutral-900 dark:text-white truncate max-w-[150px]">{log.newValue}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="p-6 text-center text-stone-400 italic">
-                            Hech qanday tahrir jurnali topilmadi
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Global Date Changer & Statistics Reset */}
-            {activeAdminTab === 'settings' && (
-              <div className="text-xs space-y-6">
-                
-                {/* 1. Add New Operator Section */}
-                <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    👥 Yangi Operator Qo'shish
-                  </h3>
-                  <p className="text-neutral-500 mb-3 font-semibold leading-relaxed">
-                    Tizimga yangi operator xodimni qo'shish. Yangi operator dastlabki paroli '12345' bilan yaratiladi.
-                  </p>
-                  <form onSubmit={handleAddNewOperatorSubmit} className="flex flex-col sm:flex-row sm:items-center gap-2.5 max-w-md">
-                    <input
-                      type="text"
-                      required
-                      placeholder="Operator Ism Familiyasi..."
-                      className="flex-1 px-3 py-1.5 bg-neutral-50 dark:bg-neutral-800 rounded-md border border-neutral-300 dark:border-neutral-700 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:text-neutral-100"
-                      value={newOpNameInput}
-                      onChange={(e) => setNewOpNameInput(e.target.value)}
-                    />
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-md text-xs transition-all flex items-center gap-1 shadow-sm shrink-0 justify-center cursor-pointer"
-                    >
-                      Qo'shish ➕
-                    </button>
-                  </form>
-                </div>
-
-                {/* 1.5 Firestore Import Section */}
-                <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    ☁️ Firestore'dan Import Qilish
-                  </h3>
-                  <p className="text-neutral-500 mb-3 font-semibold leading-relaxed">
-                    Tizim hozir barcha ma'lumotlarni brauzer xotirasida (localStorage) saqlaydi. Ushbu tugma Firestore bulutidagi operatorlar bazasini bir martalik yuklab, lokal bazani almashtiradi.
-                  </p>
-                  <button
-                    onClick={handleImportFromFirestore}
-                    className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-md text-xs transition-all flex items-center gap-1 shadow-sm cursor-pointer"
-                  >
-                    ☁️ Firestore'dan Yuklash
-                  </button>
-                </div>
-
-                {/* 2. Bulk Date Changer Section */}
-                <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    📅 Sanalarni Ommaviy O'zgartirish (Bulk Date Changer)
-                  </h3>
-                  <p className="text-neutral-500 mb-3 font-semibold leading-relaxed">
-                    Sana boshqaruv tizimi: Ushbu funksiya barcha operatorlarning jadvallaridagi barcha mFY/maktab sanalarini bitta klik bilan bir vaqtda siz tanlagan yangi kunga o'zgartiradi.
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 max-w-md">
-                    <div className="relative flex-1">
-                      <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
-                      <input
-                        type="date"
-                        className="w-full pl-9 pr-2.5 py-1.5 bg-neutral-50 dark:bg-neutral-800 rounded-md border border-neutral-300 dark:border-neutral-700 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:text-neutral-100"
-                        value={convertToDateInputValue(bulkSanaInput)}
-                        onChange={(e) => {
-                          const converted = convertFromDateInputValue(e.target.value);
-                          if (converted) setBulkSanaInput(converted);
-                        }}
-                      />
-                    </div>
-                    
-                    <button
-                      onClick={handleBulkUpdateDate}
-                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-md text-xs transition-all flex items-center gap-1 shadow-sm shrink-0 justify-center cursor-pointer"
-                    >
-                      Barchasini Yangilash
-                    </button>
-                  </div>
-
-                  <div className="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono flex items-center gap-1 mt-2 bg-neutral-50 dark:bg-neutral-900/40 p-2 rounded border border-neutral-150 dark:border-neutral-800/60 max-w-md animate-fade-in">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                    Baza uchun saqlanadigan format: <strong className="text-neutral-750 dark:text-neutral-250 font-black">{bulkSanaInput}</strong>
-                  </div>
-                </div>
-
-                {/* 3. Danger Zone — Deletion Sections */}
-                <div className="p-4 rounded-lg border border-rose-200 dark:border-rose-950/30 bg-rose-50/10 dark:bg-rose-950/5 shadow-xs space-y-4">
-                  <h3 className="text-xs font-black text-rose-600 dark:text-rose-450 uppercase tracking-widest flex items-center gap-1.5 border-b border-rose-200/40 pb-2">
-                    🚨 XAVFLI ZONA — MA'LUMOTLARNI O'CHIRISH BO'LIMLARI (Danger Zone)
-                  </h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    
-                    {/* Section 3.1: Delete Database Records (Progress) */}
-                    <div className="p-3 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-neutral-800 dark:text-white mb-1 flex items-center gap-1">
-                          🟢 Baza Progressini Tozalash
-                        </h4>
-                        <p className="text-[10px] text-neutral-500 leading-relaxed">
-                          Operatorlarning barcha mijozlar bo'yicha kiritgan natijalari (Ko'tarmadi, O'chirilgan, Xato raqam va h.k.) va izohlarini tozalab, kutilayotgan ("Kutilmoqda") holatiga qaytaradi. <strong>Mijozlar o'chmaydi!</strong>
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearAllProgress}
-                        className="w-full mt-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold transition-all shadow-xs"
-                      >
-                        Progressni Tozalash
-                      </button>
-                    </div>
-
-                    {/* Section 3.2: Delete Chat Messages */}
-                    <div className="p-3 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-neutral-800 dark:text-white mb-1 flex items-center gap-1">
-                          💬 Chat Xabarlarini O'chirish
-                        </h4>
-                        <p className="text-[10px] text-neutral-500 leading-relaxed">
-                          Tizimning tezkor chatidagi barcha jo'natilgan xabarlarni va e'lonlarni Firestore ma'lumotlar bazasidan butunlay o'chirib tashlaydi.
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearChatMessages}
-                        className="w-full mt-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold transition-all shadow-xs"
-                      >
-                        Chatni O'chirish
-                      </button>
-                    </div>
-
-                    {/* Section 3.3: Delete Main Data / School Records */}
-                    <div className="p-3 bg-white dark:bg-neutral-900 rounded-lg border border-neutral-200 dark:border-neutral-800 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-bold text-neutral-800 dark:text-white mb-1 flex items-center gap-1">
-                          🗑️ Asosiy Maktab Ma'lumotlarini O'chirish
-                        </h4>
-                        <p className="text-[10px] text-neutral-500 leading-relaxed">
-                          Barcha operatorlarga biriktirilgan barcha maktab/muassasa jadvallarini butunlay o'chiradi. Operatorlarning jadvallari bo'shab qoladi.
-                        </p>
-                      </div>
-                      <button
-                        onClick={handleClearAllSchoolRecords}
-                        className="w-full mt-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold transition-all shadow-xs"
-                      >
-                        Barcha Maktablarni O'chirish
-                      </button>
-                    </div>
-
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Operator management / Rename list */}
-            {activeAdminTab === 'operators_list' && (
-              <div className="text-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-2 mb-2">
-                  <div>
-                    <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider">
-                      👥 Operatorlar Boshqaruvi va Ismlarni O'zgartirish (Rename)
-                    </h3>
-                    <p className="text-[10px] text-neutral-500 mt-0.5">Operatorlarning ism va familiyalarini to'g'ridan-to'g'ri tahrirlashingiz, yangi operator qo'shish va o'chirishingiz mumkin</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const val = prompt("Yangi qo'shiladigan operator ism familiyasini kiriting:");
-                      if (val && val.trim()) {
-                        handleAddNewOperator(val.trim());
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-[#00a372] hover:bg-[#008c61] text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    Yangi Operator Qo'shish ➕
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[400px] overflow-y-auto pr-1">
-                  {operators.map((op, idx) => {
-                    return (
-                      <div key={op.id} className="p-3 rounded-lg border border-neutral-250 dark:border-neutral-850 bg-neutral-50 dark:bg-neutral-900 flex items-start justify-between gap-3 shadow-xs animate-fade-in-up">
-                        <div className="flex-1 min-w-0 space-y-2">
-                          <div>
-                            <label className="text-[9px] text-neutral-450 font-mono block mb-1">ID: {op.id} | Jami maktablari: {op.records.length} ta</label>
-                            <input
-                              type="text"
-                              defaultValue={op.name}
-                              onBlur={(e) => {
-                                const val = e.target.value.trim();
-                                if (val && val !== op.name) {
-                                  handleRenameOperator(op.id, val);
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  const val = (e.target as HTMLInputElement).value.trim();
-                                  if (val && val !== op.name) {
-                                    handleRenameOperator(op.id, val);
-                                    (e.target as HTMLInputElement).blur();
-                                  }
-                                }
-                              }}
-                              className="w-full px-2.5 py-1.2 bg-white dark:bg-neutral-950 border border-neutral-350 dark:border-neutral-800 rounded text-xs font-semibold text-neutral-850 dark:text-neutral-150 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-                              placeholder="Operator ismi"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[9px] text-neutral-450 font-mono block mb-1">Kirish paroli:</label>
-                            <input
-                              type="text"
-                              defaultValue={op.password || '12345'}
-                              onBlur={(e) => {
-                                const val = e.target.value.trim();
-                                if (val && val !== op.password) {
-                                  handleSetOperatorPassword(op.id, val);
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  const val = (e.target as HTMLInputElement).value.trim();
-                                  if (val && val !== op.password) {
-                                    handleSetOperatorPassword(op.id, val);
-                                    (e.target as HTMLInputElement).blur();
-                                  }
-                                }
-                              }}
-                              className="w-full px-2.5 py-1.2 bg-white dark:bg-neutral-950 border border-neutral-350 dark:border-neutral-800 rounded text-xs font-mono text-neutral-850 dark:text-neutral-150 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-                              placeholder="Parol"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1 shrink-0 mt-4">
-                          <button
-                            onClick={() => {
-                              const val = prompt("Operatorning yangi ism familiyasini kiriting:", op.name);
-                              if (val && val.trim()) {
-                                handleRenameOperator(op.id, val.trim());
-                                triggerNotification("Operator ismi tahrirlandi!");
-                              }
-                            }}
-                            className="p-1.5 bg-sky-55 dark:bg-neutral-800 text-sky-650 dark:text-sky-350 rounded hover:bg-sky-100 dark:hover:bg-neutral-750 transition-colors"
-                            title="Ismni tahrirlash"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (idx > 0) handleReorderOperators(idx, idx - 1);
-                            }}
-                            disabled={idx === 0}
-                            className="p-1.5 bg-neutral-105 dark:bg-neutral-800 text-neutral-500 rounded disabled:opacity-35 cursor-pointer"
-                            title="Yuqoriga"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (idx < operators.length - 1) handleReorderOperators(idx, idx + 1);
-                            }}
-                            disabled={idx === operators.length - 1}
-                            className="p-1.5 bg-neutral-105 dark:bg-neutral-800 text-neutral-500 rounded disabled:opacity-35 cursor-pointer"
-                            title="Pastga"
-                          >
-                            ▼
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Haqiqatan ham operator ${op.name}ni o'chirmoqchimisiz?`)) {
-                                handleDeleteOperator(op.id);
-                              }
-                            }}
-                            className="p-1.5 bg-rose-55 dark:bg-neutral-800 text-rose-650 dark:text-rose-450 rounded hover:bg-rose-100 dark:hover:bg-neutral-750 transition-colors"
-                            title="O'chirish"
-                          >
-                            ❌
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Telegram Configurations */}
-            {activeAdminTab === 'tg_settings' && (
-              <div className="text-xs space-y-4">
-                <div className="border-b border-neutral-200 dark:border-neutral-800 pb-2 mb-2">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider">
-                    💬 Telegram Bot va Kanallar Integratsiyasi
-                  </h3>
-                  <p className="text-[10px] text-neutral-500 mt-0.5">
-                    Operatorlar maktab ma'lumotlarini o'zgartirganda yoki yangi hamkorlik linklari yaratilganda Telegram kanal va admin tizimiga bildirishnoma yuboruvchi sozlamalar
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Form section */}
-                  <div className="lg:col-span-2 space-y-4 bg-neutral-50 dark:bg-neutral-900/40 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800">
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-neutral-450 dark:text-neutral-400 block mb-1">
-                          🤖 Telegram Bot Token
-                        </label>
-                        <input
-                          type="text"
-                          value={tgBotToken}
-                          onChange={(e) => setTgBotToken(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-850 rounded text-xs font-mono select-all focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-neutral-900 dark:text-neutral-100"
-                          placeholder="Masalan: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
-                        />
-                        <p className="text-[9px] text-neutral-400 mt-0.5">@BotFather orqali yaratilgan botning maxfiy token kaliti.</p>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-neutral-450 dark:text-neutral-400 block mb-1">
-                          📊 Kanal / Guruh ID (Chat ID)
-                        </label>
-                        <input
-                          type="text"
-                          value={tgChannelId}
-                          onChange={(e) => setTgChannelId(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-850 rounded text-xs font-mono select-all focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-neutral-900 dark:text-neutral-100"
-                          placeholder="Masalan: -100123456789 (Kanal ID'si doim -100 bilan boshlanadi)"
-                        />
-                        <p className="text-[9px] text-neutral-400 mt-0.5">Ish faoliyatini kuzatib borish uchun guruh yoki jamoaviy kanal ID manzili.</p>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-neutral-450 dark:text-neutral-400 block mb-1">
-                          👑 Admin Chat ID (Hamkorlik linklar uchun alohida ogohlantirish)
-                        </label>
-                        <input
-                          type="text"
-                          value={tgAdminChatId}
-                          onChange={(e) => setTgAdminChatId(e.target.value)}
-                          className="w-full px-3 py-2 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-850 rounded text-xs font-mono select-all focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-neutral-900 dark:text-neutral-100"
-                          placeholder="Masalan: 987654321"
-                        />
-                        <p className="text-[9px] text-neutral-400 mt-0.5">@qabul.bui.uz havolasi yaratilganda shoshilinch dilerlik xabari yuborilishi kerak bo'lgan boshqaruvchi ID.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
-                      <button
-                        onClick={() => handleSaveTelegramConfigs(tgBotToken, tgChannelId, tgAdminChatId)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                      >
-                        Sozlamalarni Saqlash 💾
-                      </button>
-
-                      <button
-                        onClick={() => handleTestTelegramDelivery(tgBotToken, tgChannelId, tgAdminChatId)}
-                        disabled={tgTestingState === 'sending'}
-                        className={`px-4 py-2 border rounded text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                          tgTestingState === 'sending' 
-                            ? 'bg-neutral-150 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-450 animate-pulse'
-                            : 'bg-white hover:bg-neutral-50 dark:bg-neutral-950 dark:hover:bg-neutral-900 border-neutral-300 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300'
-                        }`}
-                      >
-                        {tgTestingState === 'sending' ? (
-                          <>Yuborilmoqda... ⏳</>
-                        ) : (
-                          <>Test Xabar Yuborish ✉️</>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Live Test Feedback alert screen */}
-                    {tgTestingState !== 'idle' && (
-                      <div className={`p-3 rounded-md text-xs border ${
-                        tgTestingState === 'success' 
-                          ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-                          : tgTestingState === 'error'
-                          ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
-                          : 'bg-neutral-50 dark:bg-neutral-900/60 border-neutral-200 dark:border-neutral-800 text-neutral-750 dark:text-neutral-300'
-                      }`}>
-                        {tgTestingState === 'success' && (
-                          <div className="flex items-start gap-2">
-                            <span className="text-emerald-500 font-bold">✓ Muvaffaqiyatli:</span>
-                            <p>Ulanish zo'r! Telegram monitoring tekshirildi va test xabari muvaffaqiyatli yetkazildi.</p>
-                          </div>
-                        )}
-                        {tgTestingState === 'error' && (
-                          <div className="flex items-start gap-2">
-                            <span className="text-rose-500 font-bold">⚠ Xato:</span>
-                            <p>{tgTestErrorMessage || "Bot kiritilgan chatga ruxsat ololmagan bo'lishi mumkin. Botni ushbu chatga a'zo kilib, Admin ruxsatini bering!"}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Informational help panel */}
-                  <div className="space-y-3 bg-neutral-900 border border-neutral-800 p-4 rounded-lg text-neutral-300 self-start">
-                    <h4 className="font-extrabold text-neutral-100 flex items-center gap-1 text-[11px] uppercase tracking-wider">
-                      💡 Yo'riqnoma va Maslahat
-                    </h4>
-                    <ol className="space-y-2 text-[10px] leading-relaxed list-decimal list-inside text-neutral-400">
-                      <li>
-                        <b>Bot yaratish:</b> Telegramda <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">@BotFather</a> bepul boti orqali yangi bot yarating va uning API Tokenini kiriting.
-                      </li>
-                      <li>
-                        <b>Kanalga a'zo qilish:</b> Tanlangan botni monitoring kanaliga yoki guruhiga <b>Adminstrator (Administrator)</b> etib qo'shing va xabar yozish (Post Messages) huquqini bering.
-                      </li>
-                      <li>
-                        <b>ID aniqlash:</b> Guruh yoki kanal ID raqamini aniqlash uchun botni qo'shib, <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">@userinfobot</a> yoki boshqa monitoring botlaridan foydalanishingiz mumkin.
-                      </li>
-                      <li>
-                        <b>Xavfsizlik:</b> Sozlamalar brauzeringizning <code className="bg-neutral-800 text-emerald-400 px-1 rounded font-mono">localStorage</code> xotirasida mutlaqo xavfsiz saqlanadi.
-                      </li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB CONTENT: Analytics */}
-            {activeAdminTab === 'analytics' && (
-              <div className="space-y-4">
-                <div className="border-b border-neutral-200 dark:border-neutral-800 pb-2 mb-2">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider">
-                    📊 Tahliliy Diagrammalar va Grafik ko'rinishlar
-                  </h3>
-                  <p className="text-[10px] text-neutral-500 mt-0.5">
-                    Operatorlar samaradorligi va tumanlar bo'yicha qamrov hisobotlari
-                  </p>
-                </div>
-                <AnalyticsPanel operators={operators} />
-              </div>
-            )}
-
-            {/* TAB CONTENT: Excel Import */}
-            {activeAdminTab === 'excel_import' && (
-              <div className="space-y-4">
-                <div className="border-b border-neutral-200 dark:border-neutral-800 pb-2 mb-2">
-                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider">
-                    📂 Excel/CSV Fayl orqali Yangi Maktablar Yuklash
-                  </h3>
-                  <p className="text-[10px] text-neutral-500 mt-0.5">
-                    Faylni tanlab, kerakli ustunlarni tizim maydonlariga moslang
-                  </p>
-                </div>
-                <ExcelImport operators={operators} onImportRecords={handleImportRecords} />
-              </div>
-            )}
-
-          </div>
+          <AdminDashboard
+            operators={operators}
+            activeAdminTab={activeAdminTab}
+            setActiveAdminTab={setActiveAdminTab}
+            isAdminLoggedIn={isAdminLoggedIn}
+            setIsAdminLoggedIn={setIsAdminLoggedIn}
+            currentView={currentView}
+            setCurrentView={setCurrentView}
+            triggerNotification={triggerNotification}
+            handleFileUpload={handleFileUpload}
+            bulkDataInput={bulkDataInput}
+            setBulkDataInput={setBulkDataInput}
+            handleBulkRefillOperator={handleBulkRefillOperator}
+            adminLogSearch={adminLogSearch}
+            setAdminLogSearch={setAdminLogSearch}
+            filteredLogs={filteredLogs}
+            handleAddNewOperatorSubmit={handleAddNewOperatorSubmit}
+            newOpNameInput={newOpNameInput}
+            setNewOpNameInput={setNewOpNameInput}
+            bulkSanaInput={bulkSanaInput}
+            setBulkSanaInput={setBulkSanaInput}
+            handleBulkUpdateDate={handleBulkUpdateDate}
+            handleClearAllProgress={handleClearAllProgress}
+            handleClearChatMessages={handleClearChatMessages}
+            handleClearAllSchoolRecords={handleClearAllSchoolRecords}
+            handleAddNewOperator={handleAddNewOperator}
+            handleRenameOperator={handleRenameOperator}
+            handleSetOperatorPassword={handleSetOperatorPassword}
+            handleDeleteOperator={handleDeleteOperator}
+            handleReorderOperators={handleReorderOperators}
+            tgBotToken={tgBotToken}
+            setTgBotToken={setTgBotToken}
+            tgChannelId={tgChannelId}
+            setTgChannelId={setTgChannelId}
+            tgAdminChatId={tgAdminChatId}
+            setTgAdminChatId={setTgAdminChatId}
+            handleSaveTelegramConfigs={handleSaveTelegramConfigs}
+            handleTestTelegramDelivery={handleTestTelegramDelivery}
+            tgTestingState={tgTestingState}
+            tgTestErrorMessage={tgTestErrorMessage}
+            handleImportRecords={handleImportRecords}
+            theme={theme}
+          />
         )}
 
         {/* Global Progress indicator */}
@@ -2699,27 +2377,45 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
               </p>
             </div>
             
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
               {/* View Mode Toggle */}
-              <div className="bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-lg flex items-center gap-0.5 border border-neutral-200 dark:border-neutral-700 mr-2">
+              <div className="bg-neutral-100 dark:bg-neutral-800 p-1 rounded-xl flex items-center gap-1 border border-neutral-200 dark:border-neutral-700">
                 <button
                   onClick={() => setOperatorViewMode('table')}
-                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${operatorViewMode === 'table' ? 'bg-emerald-600 text-white shadow-3xs' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'table' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
                 >
                   📝 Jadval
                 </button>
                 <button
+                  onClick={() => setOperatorViewMode('kanban')}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'kanban' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                >
+                  📋 Kanban
+                </button>
+                <button
                   onClick={() => setOperatorViewMode('charts')}
-                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${operatorViewMode === 'charts' ? 'bg-emerald-600 text-white shadow-3xs' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'charts' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
                 >
                   📊 Grafik
                 </button>
-              </div>
-
-              {/* Call center tips informational notice */}
-              <div className="text-[10px] text-neutral-400 dark:text-neutral-500 flex items-center gap-1.5 font-medium bg-white dark:bg-neutral-850 px-3 py-1 rounded-md border border-neutral-200 dark:border-neutral-700 shadow-3xs">
-                <Info size={12} className="text-emerald-500 animate-bounce" />
-                Natija va Izoh ustunlarini o'zgartirganingizda ma'lumotlar avtomatik saqlanib qoladi!
+                <button
+                  onClick={() => setOperatorViewMode('history')}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'history' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                >
+                  📞 Tarix
+                </button>
+                <button
+                  onClick={() => setOperatorViewMode('callbacks')}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'callbacks' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                >
+                  🔔 Rejalar
+                </button>
+                <button
+                  onClick={() => setOperatorViewMode('prices')}
+                  className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all duration-150 cursor-pointer ${operatorViewMode === 'prices' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'}`}
+                >
+                  💰 Narxlar
+                </button>
               </div>
             </div>
           </div>
@@ -2728,7 +2424,96 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
 
         {/* Selected Operator Stats Cards (8 status cards - full width) */}
         {currentView === 'operator' && activeOperator && operatorViewMode === 'table' && (
-          <Stats records={activeOperator.records} operatorName={activeOperator.name} />
+          <Stats 
+            records={activeOperator.records} 
+            operatorName={activeOperator.name} 
+            selectedStatus={selectedStatusFilter}
+            onCardClick={setSelectedStatusFilter}
+          />
+        )}
+
+        {/* Dynamic High-Priority Callback Reminders Dashboard Shelf */}
+        {currentView === 'operator' && activeOperator && activeOperator.records.some(r => r.eslatmaVaqti) && (
+          <div className="mb-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200/60 dark:border-amber-900/40 p-4 shadow-sm animate-fade-in-up">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
+                <span className="text-lg animate-bounce">🔔</span>
+                <h3 className="text-xs font-black uppercase tracking-wider">
+                  Siz belgilagan qayta qo'ngiroqlar (Yaqin orada muloqot)
+                </h3>
+              </div>
+              <span className="text-[10px] font-bold bg-amber-200 dark:bg-amber-900/50 text-amber-850 dark:text-amber-300 px-2 py-0.5 rounded-full select-none">
+                {activeOperator.records.filter(r => r.eslatmaVaqti).length} ta reja
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[160px] overflow-y-auto">
+              {activeOperator.records
+                .filter(r => r.eslatmaVaqti)
+                .sort((a,b) => (a.eslatmaVaqti || '').localeCompare(b.eslatmaVaqti || ''))
+                .map(rem => {
+                  const remTime = new Date(rem.eslatmaVaqti || '');
+                  const now = new Date();
+                  const isPast = remTime < now;
+                  const formattedTime = remTime.toLocaleDateString() + ' ' + remTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                  
+                  return (
+                    <div 
+                      key={rem.id} 
+                      className={`p-2.5 rounded-lg border flex flex-col justify-between gap-1 text-xs transition-colors ${
+                        isPast 
+                          ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-250 dark:border-rose-900/40' 
+                          : 'bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 hover:border-amber-450'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-extrabold text-neutral-800 dark:text-neutral-200 leading-tight">
+                            {rem.fish}
+                          </p>
+                          <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+                            📍 {rem.viloyat}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 border select-none ${
+                          isPast 
+                            ? 'bg-rose-100 text-rose-800 border-rose-350 dark:bg-rose-900/30' 
+                            : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/30'
+                        }`}>
+                          {isPast ? '⚠️ KECHIKDI' : '⏰ REJA'}
+                        </span>
+                      </div>
+                      
+                      {/* Reminder note text */}
+                      <p className="text-[11px] italic text-neutral-600 dark:text-neutral-350 bg-neutral-100/55 dark:bg-neutral-850 p-1 px-1.5 rounded pr-6 leading-normal relative select-text break-words">
+                        💬 {rem.eslatmaMatni || "Izohsiz..."}
+                      </p>
+
+                      <div className="flex items-center justify-between text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 mt-1 select-none font-mono">
+                        <span className="text-amber-800 dark:text-amber-450 font-black">
+                          🕒 {formattedTime}
+                        </span>
+                        
+                        {/* Quick action buttons */}
+                        <div className="flex items-center gap-2">
+                          {/* Done Button to clear the reminder */}
+                          <button
+                            onClick={() => {
+                              handleUpdateRecord(rem.id, 'eslatmaVaqti', '');
+                              handleUpdateRecord(rem.id, 'eslatmaMatni', '');
+                            }}
+                            className="text-emerald-650 hover:text-emerald-700 font-extrabold text-[10px] hover:underline"
+                            title="Xizmat ko'rsatildi (bajarildi)"
+                          >
+                            ✓ Bajarildi
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
         )}
 
         {/* Main interactive Workbook OperatorTable */}
@@ -2741,6 +2526,14 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
               onAddRecord={handleAddRecord}
               isAdmin={isAdminLoggedIn}
               highlightTerm={globalSearch}
+              defaultStatusFilter={selectedStatusFilter}
+              onStatusFilterChange={setSelectedStatusFilter}
+              onStartCallTimer={(phone, name) => {
+                setActiveCallPhone(phone);
+                setActiveCallClientName(name);
+                setCallTimerSeconds(0);
+                setIsCallTimerRunning(true);
+              }}
             />
           </div>
         )}
@@ -2752,7 +2545,249 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
           </div>
         )}
 
+        {/* Selected Operator Kanban Board Visual Panel */}
+        {currentView === 'operator' && activeOperator && operatorViewMode === 'kanban' && (
+          <div className="flex-1 min-h-[400px]">
+            <KanbanBoard
+              records={activeOperator.records}
+              operatorId={activeOperator.id}
+              onUpdateRecord={handleUpdateRecord}
+            />
+          </div>
+        )}
+
+        {/* Selected Operator Call History Panel */}
+        {currentView === 'operator' && activeOperator && operatorViewMode === 'history' && (
+          <div className="flex-1 min-h-[400px]">
+            <CallHistory
+              history={callHistory}
+              onClearHistory={() => {
+                saveToLocalStorage(operators, activityLogs, []);
+              }}
+              isAdmin={isAdminLoggedIn}
+            />
+          </div>
+        )}
+
+        {/* Selected Operator Custom Callbacks & Schedules Workspace Panel */}
+        {currentView === 'operator' && activeOperator && operatorViewMode === 'callbacks' && (
+          <div className="flex-1 min-h-[400px]">
+            <SchedulesPanel
+              records={activeOperator.records}
+              callHistory={callHistory}
+              onUpdateRecord={handleUpdateRecord}
+              onStartCallTimer={(phone) => {
+                const matched = activeOperator.records.find(r => r.tel === phone);
+                setActiveCallPhone(phone);
+                setActiveCallClientName(matched ? matched.fish : "Mijoz");
+                setCallTimerSeconds(0);
+                setIsCallTimerRunning(true);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Selected Operator University Prices and Subjects Info Panel */}
+        {currentView === 'operator' && activeOperator && operatorViewMode === 'prices' && (
+          <div className="flex-1 min-h-[400px]">
+            <PricesPanel />
+          </div>
+        )}
+
       </main>
+
+      {/* Interactive Active Call Timer Floating Bar (Stopwatch) */}
+      {activeCallPhone && (
+        <div className="fixed bottom-20 right-6 z-50 max-w-sm w-full bg-slate-900 border border-neutral-800 text-white p-3.5 rounded-xl shadow-2xl flex flex-col gap-3 select-none animate-slide-up">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+              <span className="text-[9px] uppercase font-black tracking-widest text-[#9bc1bc]">Muloqot Taymeri</span>
+            </div>
+            <button 
+              onClick={() => {
+                setIsCallTimerRunning(false);
+                setActiveCallPhone(null);
+                setCallTimerSeconds(0);
+              }}
+              className="text-neutral-400 hover:text-white transition-colors p-1 text-sm font-bold"
+              title="Yopish"
+            >
+              ×
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-900/50 text-emerald-400">
+              📞
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <h4 className="text-xs font-black truncate text-neutral-100">{activeCallClientName || 'Noma’lum mijoz'}</h4>
+              <p className="text-[11px] font-mono font-medium text-neutral-400 mt-0.5">{activeCallPhone}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-neutral-800 pt-2">
+            <div className="flex items-baseline gap-1">
+              <span className={`text-lg font-bold font-mono tracking-tight ${callTimerSeconds >= 300 ? 'text-rose-500 animate-pulse' : 'text-emerald-400'}`}>
+                {Math.floor(callTimerSeconds / 60).toString().padStart(2, '0')}:
+                {(callTimerSeconds % 60).toString().padStart(2, '0')}
+              </span>
+              <span className="text-[9px] text-neutral-500 font-mono">/ 05:00</span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Play / Pause Toggle */}
+              <button
+                onClick={() => setIsCallTimerRunning(!isCallTimerRunning)}
+                className={`p-1.5 rounded-lg border text-xs transition-all ${
+                  isCallTimerRunning 
+                    ? 'bg-neutral-800 text-amber-400 border-amber-900/30' 
+                    : 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-700'
+                }`}
+                title={isCallTimerRunning ? "Suhbatni pauza qilish" : "Suhbatni davom ettirish"}
+              >
+                {isCallTimerRunning ? '⏸️' : '▶️'}
+              </button>
+
+              {/* Reset stopwatch */}
+              <button
+                onClick={() => setCallTimerSeconds(0)}
+                className="p-1.5 rounded-lg bg-neutral-800 border border-neutral-750 text-neutral-300 hover:text-white hover:bg-neutral-700 transition-all text-xs"
+                title="Taymerni qayta tiklash"
+              >
+                🔄
+              </button>
+
+              {/* End call / Save statistics log comment helper */}
+              <button
+                onClick={() => {
+                  setIsCallTimerRunning(false);
+                  const min = Math.floor(callTimerSeconds / 60).toString().padStart(2, '0');
+                  const sec = (callTimerSeconds % 60).toString().padStart(2, '0');
+                  const talkString = ` [📞 ${min}:${sec} suhbat]`;
+                  
+                  if (activeOperator) {
+                    const cleanPhone = activeCallPhone.replace(/[^0-9]/g, '');
+                    const matchedRec = activeOperator.records.find(r => r.tel.replace(/[^0-9]/g, '') === cleanPhone);
+                    if (matchedRec) {
+                      const currentIzoh = matchedRec.izoh || '';
+                      if (!currentIzoh.includes(talkString)) {
+                        handleUpdateRecord(matchedRec.id, 'izoh', currentIzoh ? `${currentIzoh}${talkString}` : `${talkString.trim()}`);
+                        triggerNotification("⏱️ Suhbat vaqti mijoz izohiga saqlanishi uchun yuborildi!");
+                      }
+                    }
+                  }
+                  setActiveCallPhone(null);
+                  setCallTimerSeconds(0);
+                }}
+                className="px-2.5 py-1 bg-rose-600 border border-rose-500 text-white hover:bg-rose-700 transition-all font-bold text-xs rounded-lg shadow-sm"
+                title="Suhbatni yakunlab, vaqtni IZOHga yozish"
+              >
+                🔴 Tugatish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Highly polished Scheduled Callback Reminder Alarm Notification Card Overlay */}
+      {activeReminderPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none">
+          <div className="max-w-md w-full bg-white dark:bg-neutral-900 border border-amber-300 dark:border-amber-800 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 relative border-t-8 border-t-amber-500 scale-95 md:scale-100 transition-transform">
+            
+            {/* Alarm indicator */}
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-amber-100 dark:bg-amber-955/40 text-amber-700 dark:text-amber-405 relative flex items-center justify-center">
+                <span className="text-lg animate-ping absolute leading-none">🔔</span>
+                <span className="text-lg leading-none">🔔</span>
+              </span>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-tight text-neutral-800 dark:text-neutral-100">
+                  Muloqot eslatma vaqti keldi!
+                </h3>
+                <p className="text-[10px] text-neutral-450 font-medium">Rejalashtirilgan bog'lanish muddati yetdi.</p>
+              </div>
+            </div>
+
+            {/* Client info */}
+            <div className="p-3.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                <span>👤 Mijoz F.I.Sh:</span>
+                <span className="text-neutral-900 dark:text-white font-extrabold">{activeReminderPopup.fish}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                <span>📍 Viloyat:</span>
+                <span className="font-semibold text-neutral-600 dark:text-neutral-300">{activeReminderPopup.viloyat}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                <span>📞 Telefon:</span>
+                <span className="font-mono text-indigo-600 dark:text-indigo-400 font-extrabold">{activeReminderPopup.tel}</span>
+              </div>
+              {activeReminderPopup.eslatmaMatni && (
+                <div className="mt-1.5 p-2 rounded bg-amber-50/50 dark:bg-amber-950/20 text-neutral-700 dark:text-neutral-200 italic text-xs border-l-2 border-l-amber-500">
+                  ⚠️ "{activeReminderPopup.eslatmaMatni}"
+                </div>
+              )}
+            </div>
+
+            {/* Actions for reminder */}
+            <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-neutral-150 dark:border-neutral-850">
+              <button
+                onClick={() => {
+                  setAcknowledgedReminderIds(prev => new Set([...prev, activeReminderPopup.id]));
+                  setActiveReminderPopup(null);
+                }}
+                className="px-2 py-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-700 dark:text-neutral-300 text-xs font-bold rounded-xl transition-all"
+              >
+                🔕 O'chirish
+              </button>
+
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const fifteenMinLater = new Date(now.getTime() + 15 * 60000);
+                  const tzOffsetMin = fifteenMinLater.getTimezoneOffset();
+                  const adjusted = new Date(fifteenMinLater.getTime() - (tzOffsetMin * 60000));
+                  const newAlarmTime = adjusted.toISOString().slice(0, 16);
+                  
+                  handleUpdateRecord(activeReminderPopup.id, 'eslatmaVaqti', newAlarmTime);
+                  triggerNotification("⏰ Eslatma 15 daqiqaga orqaga surildi!");
+                  setActiveReminderPopup(null);
+                }}
+                className="px-2 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-955/20 text-amber-700 dark:text-amber-400 border border-neutral-200 dark:border-neutral-800 text-xs font-bold rounded-xl transition-all"
+              >
+                ⏳ +15 min
+              </button>
+
+              <button
+                onClick={() => {
+                  let cleanPhone = activeReminderPopup.tel.replace(/[^0-9]/g, '');
+                  if (cleanPhone.startsWith('998') && cleanPhone.length > 9) {
+                    cleanPhone = cleanPhone.substring(3);
+                  }
+                  navigator.clipboard.writeText(cleanPhone);
+                  
+                  setActiveCallPhone(activeReminderPopup.tel);
+                  setActiveCallClientName(activeReminderPopup.fish);
+                  setCallTimerSeconds(0);
+                  setIsCallTimerRunning(true);
+                  
+                  setAcknowledgedReminderIds(prev => new Set([...prev, activeReminderPopup.id]));
+                  setActiveReminderPopup(null);
+                  
+                  setOperatorViewMode('table');
+                  triggerNotification("📞 Bog'lanish boshlandi!");
+                }}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl shadow-md transition-all flex items-center justify-center gap-1"
+              >
+                📞 Bog'lanish
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Sheet Tab Bar Footer - mimicking Excel / Google Sheets workbook tab tray */}
       <footer className="bg-neutral-950 border-t border-neutral-800 p-0 text-white select-none sticky bottom-0 z-40 shrink-0 relative">
@@ -2967,13 +3002,6 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
 
           {/* Real Live Running Asia/Tashkent clock ticking dynamically down to minute and seconds */}
           <div className="px-4 py-3 bg-neutral-950 text-neutral-300 text-[10px] font-mono shrink-0 flex items-center justify-between sm:justify-end gap-2.5 border-t sm:border-t-0 border-neutral-800">
-            <span
-              className={dbMode === 'neon' ? 'text-sky-400 font-bold' : 'text-neutral-500 font-bold'}
-              title={dbMode === 'neon' ? 'Neon Postgres bulut bazasi ulangan' : 'Lokal rejim: faqat brauzer xotirasi (server.mjs ishga tushirilmagan)'}
-            >
-              {dbMode === 'neon' ? '☁️ Neon DB' : '💾 Lokal'}
-            </span>
-            <span className="text-neutral-600">|</span>
             <span className="text-[#00a372] font-extrabold font-mono">
               {tashkentTime || 'Yuklanmoqda...'}
             </span>
@@ -3025,6 +3053,92 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold shadow-xs flex items-center gap-1"
                 >
                   Tasdiqlash
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Operator Password Change Modal */}
+      {showPasswordChangeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl relative animate-fade-in text-left">
+            <h3 className="text-sm font-black text-neutral-800 dark:text-neutral-100 flex items-center gap-1.5 uppercase tracking-wide border-b border-neutral-100 dark:border-neutral-800 pb-2 mb-3">
+              🔑 Parolni O'zgartirish
+            </h3>
+            <p className="text-[10px] text-neutral-500 mb-4 font-medium">
+              Xavfsizlik nuqtai nazaridan parolingizni boshqa operatorlar ko'ra olmaydigan mustahkam parolga yangilang.
+            </p>
+
+            <form onSubmit={handlePasswordChange} className="space-y-3.5">
+              <div className="space-y-1 text-left">
+                <label className="text-[10px] uppercase font-bold text-neutral-400">Hozirgi Parol</label>
+                <input
+                  type="password"
+                  placeholder="Hozirgi parolingiz..."
+                  className="w-full p-2 text-xs bg-neutral-50 dark:bg-neutral-850 text-neutral-800 dark:text-neutral-100 rounded-lg border border-neutral-300 dark:border-neutral-750 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                  value={currentPasswordInput}
+                  onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1 text-left">
+                <label className="text-[10px] uppercase font-bold text-neutral-400">Yangi Parol</label>
+                <input
+                  type="password"
+                  placeholder="Yangi parol kiriting..."
+                  className="w-full p-2 text-xs bg-neutral-50 dark:bg-neutral-850 text-neutral-800 dark:text-neutral-100 rounded-lg border border-neutral-300 dark:border-neutral-750 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1 text-left">
+                <label className="text-[10px] uppercase font-bold text-neutral-400">Yangi Parol Tasdig'i</label>
+                <input
+                  type="password"
+                  placeholder="Yangi parolni qayta kiriting..."
+                  className="w-full p-2 text-xs bg-neutral-50 dark:bg-neutral-850 text-neutral-800 dark:text-neutral-100 rounded-lg border border-neutral-300 dark:border-neutral-750 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
+                  value={confirmPasswordInput}
+                  onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              {passwordChangeError && (
+                <div className="text-[10px] font-bold text-rose-600 dark:text-rose-450 bg-rose-50 dark:bg-rose-950/20 border border-rose-220 dark:border-transparent p-2 rounded">
+                  ⚠️ {passwordChangeError}
+                </div>
+              )}
+
+              {passwordChangeSuccess && (
+                <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-450 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 dark:border-transparent p-2 rounded">
+                  ✅ {passwordChangeSuccess}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 text-xs pt-2 font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordChangeModal(false);
+                    setCurrentPasswordInput('');
+                    setNewPasswordInput('');
+                    setConfirmPasswordInput('');
+                    setPasswordChangeError('');
+                  }}
+                  className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 rounded-lg font-bold text-neutral-600 dark:text-neutral-300 transition-colors cursor-pointer"
+                >
+                  Yopish
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs transition-colors cursor-pointer"
+                >
+                  Parolni Yangilash
                 </button>
               </div>
             </form>

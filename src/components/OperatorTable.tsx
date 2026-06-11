@@ -9,24 +9,27 @@ import { Search, AlertCircle, Copy, Check, Send, Plus, ArrowUpDown } from 'lucid
 
 interface OperatorTableProps {
   records: SchoolRecord[];
-  onUpdateRecord: (id: string, field: 'viloyat' | 'fish' | 'tugulganSana' | 'tel' | 'telQoshimcha' | 'natija' | 'izoh', value: string) => void;
+  onUpdateRecord: (id: string, field: 'viloyat' | 'fish' | 'tugulganSana' | 'tel' | 'telQoshimcha' | 'natija' | 'izoh' | 'eslatmaVaqti' | 'eslatmaMatni', value: string) => void;
   onDeleteRecord?: (id: string) => void;
   onAddRecord?: (record: Omit<SchoolRecord, 'id'>) => void;
   isAdmin?: boolean;
   highlightTerm?: string;
+  defaultStatusFilter?: string;
+  onStatusFilterChange?: (status: string) => void;
+  onStartCallTimer?: (phone: string, clientName: string) => void;
 }
 
 const RESULT_OPTIONS = [
   { value: 'all', label: 'Barcha holatlar' },
-  { value: "Ko'tarmadi", label: "📞 Ko'tarmadi", color: 'bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-950/40 dark:text-orange-300' },
-  { value: "O'chirilgan", label: "📴 O'chirilgan", color: 'bg-neutral-200 text-neutral-800 border-neutral-350 dark:bg-neutral-850 dark:text-neutral-300' },
-  { value: "O'ylab ko'radi", label: "🤔 O'ylab ko'radi", color: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-950/40 dark:text-yellow-300' },
-  { value: "Maslahat qiladi", label: "👥 Maslahat qiladi", color: 'bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300' },
-  { value: "Xato raqam", label: "❌ Xato raqam", color: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
-  { value: "O'qimaydi", label: "🚫 O'qimaydi", color: 'bg-rose-200 text-red-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
-  { value: "O'qiydi", label: "🎓 O'qiydi", color: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300' },
-  { value: "Shartnoma berildi", label: "📄 Shartnoma berildi", color: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300' },
-  { value: '', label: '⏳ Kutilmoqda', color: 'bg-neutral-100 text-neutral-600 border-neutral-300 dark:bg-neutral-800 dark:text-neutral-400' }
+  { value: "Ko'tarmadi", label: "📞 Ko'tarmadi", color: 'bg-transparent border-2 border-orange-500 text-orange-600 dark:text-orange-400 font-bold' },
+  { value: "O'chirilgan", label: "📴 O'chirilgan", color: 'bg-transparent border-2 border-neutral-400 text-neutral-600 dark:text-neutral-450 font-bold' },
+  { value: "O'ylab ko'radi", label: "🤔 O'ylab ko'radi", color: 'bg-transparent border-2 border-yellow-500 text-yellow-600 dark:text-yellow-400 font-bold' },
+  { value: "Maslahat qiladi", label: "👥 Maslahat qiladi", color: 'bg-transparent border-2 border-sky-500 text-sky-600 dark:text-sky-400 font-bold' },
+  { value: "Xato raqam", label: "❌ Xato raqam", color: 'bg-transparent border-2 border-rose-500 text-rose-600 dark:text-rose-455 font-bold' },
+  { value: "O'qimaydi", label: "🚫 O'qimaydi", color: 'bg-transparent border-2 border-red-500 text-red-600 dark:text-red-405 font-bold' },
+  { value: "O'qiydi", label: "🎓 O'qiydi", color: 'bg-transparent border-2 border-indigo-500 text-indigo-650 dark:text-indigo-400 font-bold' },
+  { value: "Shartnoma berildi", label: "📄 Shartnoma berildi", color: 'bg-transparent border-2 border-emerald-500 text-emerald-650 dark:text-emerald-400 font-bold' },
+  { value: '', label: '⏳ Kutilmoqda', color: 'bg-transparent border-2 border-neutral-300 text-neutral-550 dark:border-neutral-700 dark:text-neutral-400 font-bold' }
 ];
 
 /* Custom search highlight helper */
@@ -60,17 +63,54 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
   onDeleteRecord,
   onAddRecord,
   isAdmin = false,
-  highlightTerm = ""
+  highlightTerm = "",
+  defaultStatusFilter,
+  onStatusFilterChange,
+  onStartCallTimer
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [viloyatFilter, setViloyatFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  
+  const [localStatusFilter, setLocalStatusFilter] = useState('all');
+  const statusFilter = defaultStatusFilter !== undefined ? defaultStatusFilter : localStatusFilter;
+  const setStatusFilter = onStatusFilterChange !== undefined ? onStatusFilterChange : setLocalStatusFilter;
+
+  // Track active callback reminder schedule recordID
+  const [schedulerRecordId, setSchedulerRecordId] = useState<string | null>(null);
+
   const [sanaFilter, setSanaFilter] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   // Sorting setup
   const [sortField, setSortField] = useState<'no' | 'viloyat' | 'fish' | 'tugulganSana'>('no');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Drag and drop columns setup
+  const [columnIds, setColumnIds] = useState<string[]>(['viloyat', 'fish', 'tugulganSana', 'tel', 'telQoshimcha', 'natija', 'izoh']);
+  const [draggedCol, setDraggedCol] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, colId: string) => {
+    setDraggedCol(colId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetColId: string) => {
+    e.preventDefault();
+    if (!draggedCol || draggedCol === targetColId) return;
+    
+    const currentIdx = columnIds.indexOf(draggedCol);
+    const targetIdx = columnIds.indexOf(targetColId);
+    
+    const updated = [...columnIds];
+    updated.splice(currentIdx, 1);
+    updated.splice(targetIdx, 0, draggedCol);
+    
+    setColumnIds(updated);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedCol(null);
+  };
 
   // Add record dialog state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -144,13 +184,112 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
     return 0;
   });
 
+  // Selected Row State
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+
+  // Set first row as selected by default if nothing is selected yet
+  React.useEffect(() => {
+    if (!selectedRecordId && sortedRecords.length > 0) {
+      setSelectedRecordId(sortedRecords[0].id);
+    }
+  }, [sortedRecords, selectedRecordId]);
+
   // Copy phone helper
   const handleCopyPhone = (id: string, phone: string) => {
-    const cleanPhone = phone.replace(/[^0-9+]/g, '');
+    let cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.startsWith('998') && cleanPhone.length > 9) {
+      cleanPhone = cleanPhone.substring(3);
+    }
     navigator.clipboard.writeText(cleanPhone);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1500);
+
+    if (onStartCallTimer) {
+      // Find matching record
+      const actualId = id.replace('_q', '');
+      const matched = records.find(r => r.id === actualId);
+      onStartCallTimer(phone, matched ? matched.fish : "Mijoz");
+    }
   };
+
+  // Keyboard Navigation & Action Hotkeys Effect
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName || '';
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(targetTag)) {
+        if (e.key === 'Escape') {
+          (e.target as HTMLElement).blur();
+        }
+        return;
+      }
+
+      if (sortedRecords.length === 0) return;
+      const currentIndex = sortedRecords.findIndex(r => r.id === selectedRecordId);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIndex = Math.min(currentIndex + 1, sortedRecords.length - 1);
+        if (sortedRecords[nextIndex]) {
+          setSelectedRecordId(sortedRecords[nextIndex].id);
+          const el = document.getElementById(`row-${sortedRecords[nextIndex].id}`);
+          if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevIndex = Math.max(currentIndex - 1, 0);
+        if (sortedRecords[prevIndex]) {
+          setSelectedRecordId(sortedRecords[prevIndex].id);
+          const el = document.getElementById(`row-${sortedRecords[prevIndex].id}`);
+          if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      } else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const activeRec = sortedRecords.find(r => r.id === selectedRecordId);
+        if (activeRec) {
+          handleCopyPhone(activeRec.id, activeRec.tel);
+        }
+      } else if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+         const activeRec = sortedRecords.find(r => r.id === selectedRecordId);
+         if (activeRec) {
+           setSchedulerRecordId(prev => prev === activeRec.id ? null : activeRec.id);
+         }
+      } else if (e.key === 'i' || e.key === 'I') {
+        e.preventDefault();
+        const activeRec = sortedRecords.find(r => r.id === selectedRecordId);
+        if (activeRec) {
+          const izohInput = document.getElementById(`izoh-input-${activeRec.id}`);
+          if (izohInput) {
+            (izohInput as HTMLInputElement).focus();
+            (izohInput as HTMLInputElement).select();
+          }
+        }
+      } else if (['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].includes(e.key)) {
+        e.preventDefault();
+        const activeRec = sortedRecords.find(r => r.id === selectedRecordId);
+        if (activeRec) {
+          let targetStatus = '';
+          if (e.key === '1') targetStatus = "Ko'tarmadi";
+          else if (e.key === '2') targetStatus = "O'chirilgan";
+          else if (e.key === '3') targetStatus = "O'ylab ko'radi";
+          else if (e.key === '4') targetStatus = "Maslahat qiladi";
+          else if (e.key === '5') targetStatus = "Xato raqam";
+          else if (e.key === '6') targetStatus = "O'qimaydi";
+          else if (e.key === '7') targetStatus = "O'qiydi";
+          else if (e.key === '8') targetStatus = "Shartnoma berildi";
+          else if (e.key === '9' || e.key === '0') targetStatus = "";
+
+          onUpdateRecord(activeRec.id, 'natija', targetStatus);
+          
+          // Show trigger notification
+          console.log("Status key updated active record: ", activeRec.id, "to", targetStatus);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedRecordId, sortedRecords]);
 
   // Submit new record
   const handleCreateRecord = (e: React.FormEvent) => {
@@ -196,6 +335,344 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
     oqiydi: selectedDateRecords.filter(r => r.natija === "O'qiydi").length,
     shartnomaBerildi: selectedDateRecords.filter(r => r.natija === "Shartnoma berildi").length,
     kutilmoqda: selectedDateRecords.filter(r => r.natija === "").length,
+  };
+
+  // Helper to render draggable headers
+  const renderHeaderCell = (id: string) => {
+    switch (id) {
+      case 'viloyat':
+        return (
+          <th 
+            key="viloyat"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'viloyat')}
+            onDragOver={(e) => handleDragOver(e, 'viloyat')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none ${draggedCol === 'viloyat' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+            onClick={() => handleSort('viloyat')}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Viloyati <ArrowUpDown size={10} className="opacity-60" />
+            </div>
+          </th>
+        );
+      case 'fish':
+        return (
+          <th 
+            key="fish"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'fish')}
+            onDragOver={(e) => handleDragOver(e, 'fish')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none ${draggedCol === 'fish' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+            onClick={() => handleSort('fish')}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Familiya Ism Sharif <ArrowUpDown size={10} className="opacity-60" />
+            </div>
+          </th>
+        );
+      case 'tugulganSana':
+        return (
+          <th 
+            key="tugulganSana"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'tugulganSana')}
+            onDragOver={(e) => handleDragOver(e, 'tugulganSana')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none w-36 ${draggedCol === 'tugulganSana' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+            onClick={() => handleSort('tugulganSana')}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Tugulgan sanasi <ArrowUpDown size={10} className="opacity-60" />
+            </div>
+          </th>
+        );
+      case 'tel':
+        return (
+          <th 
+            key="tel"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'tel')}
+            onDragOver={(e) => handleDragOver(e, 'tel')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none min-w-[180px] ${draggedCol === 'tel' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Telefon raqami
+            </div>
+          </th>
+        );
+      case 'telQoshimcha':
+        return (
+          <th 
+            key="telQoshimcha"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'telQoshimcha')}
+            onDragOver={(e) => handleDragOver(e, 'telQoshimcha')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none min-w-[160px] ${draggedCol === 'telQoshimcha' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Qo'shimcha telefon
+            </div>
+          </th>
+        );
+      case 'natija':
+        return (
+          <th 
+            key="natija"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'natija')}
+            onDragOver={(e) => handleDragOver(e, 'natija')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none w-44 ${draggedCol === 'natija' ? 'opacity-40 bg-neutral-100 dark:bg-neutral-800' : ''}`}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              Natija (Holat)
+            </div>
+          </th>
+        );
+      case 'izoh':
+        return (
+          <th 
+            key="izoh"
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'izoh')}
+            onDragOver={(e) => handleDragOver(e, 'izoh')}
+            onDragEnd={handleDragEnd}
+            className={`p-2 font-bold text-neutral-600 dark:text-neutral-350 border-b border-neutral-200 dark:border-neutral-800 cursor-grab active:cursor-grabbing hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center select-none w-64 ${draggedCol === 'izoh' ? 'opacity-40 bg-neutral-100' : ''}`}
+          >
+            <div className="flex items-center justify-center gap-1.5">
+              <span className="text-[10px] text-neutral-400">⋮⋮</span>
+              IZOH
+            </div>
+          </th>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // Helper to render corresponding cells
+  const renderCell = (id: string, record: SchoolRecord, inputTxtClass: string, selectedOption: any) => {
+    switch (id) {
+      case 'viloyat':
+        return (
+          <td key="viloyat" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[150px] ${draggedCol === 'viloyat' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug ${inputTxtClass}`}>
+              {highlightText(record.viloyat, activeSearch)}
+            </div>
+          </td>
+        );
+      case 'fish':
+        return (
+          <td key="fish" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[200px] ${draggedCol === 'fish' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug font-bold ${inputTxtClass}`}>
+              {highlightText(record.fish, activeSearch)}
+            </div>
+          </td>
+        );
+      case 'tugulganSana':
+        return (
+          <td key="tugulganSana" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 ${draggedCol === 'tugulganSana' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <input
+              type="text"
+              className="w-full text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono text-neutral-800 dark:text-neutral-100"
+              value={record.tugulganSana}
+              onChange={(e) => onUpdateRecord(record.id, 'tugulganSana', e.target.value)}
+            />
+          </td>
+        );
+      case 'tel':
+        return (
+          <td key="tel" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[200px] ${draggedCol === 'tel' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <div className="flex items-center justify-between group/cell relative px-2.5 py-2">
+              <span 
+                onClick={() => handleCopyPhone(record.id, record.tel)}
+                className="flex-1 text-xs font-mono font-bold text-neutral-800 dark:text-neutral-100 hover:text-emerald-600 dark:hover:text-emerald-450 cursor-pointer select-all whitespace-nowrap flex items-center gap-1.5 group/phone active:scale-95 transition-all"
+                title="Nusxa olish va muloqot taymerini boshlash uchun bosing"
+              >
+                {highlightText(record.tel, activeSearch)}
+                {copiedId === record.id ? (
+                  <span className="text-[10px] font-sans font-black text-emerald-650 dark:text-emerald-400 animate-pulse">✓ nusxa %998-siz</span>
+                ) : (
+                  <span className="text-[9px] font-sans text-neutral-400 opacity-0 group-hover/phone:opacity-100 transition-opacity">📋 nusxalash</span>
+                )}
+              </span>
+              <div className="flex items-center shrink-0 ml-1">
+                {(() => {
+                  const cleanPhone = record.tel.replace(/[^0-9]/g, '');
+                  const tgPhone = cleanPhone.length === 9 ? `998${cleanPhone}` : cleanPhone;
+                  return (
+                    <a
+                      href={`https://t.me/+${tgPhone}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-sky-550 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1 flex items-center justify-center"
+                      title="Telegram orqali bog'lanish"
+                    >
+                      <Send size={10} />
+                    </a>
+                  );
+                })()}
+              </div>
+            </div>
+          </td>
+        );
+      case 'telQoshimcha':
+        return (
+          <td key="telQoshimcha" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 ${draggedCol === 'telQoshimcha' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <div className="flex items-center justify-between group/cell relative pr-1">
+              <input
+                type="text"
+                className="flex-1 text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono text-neutral-800 dark:text-neutral-100"
+                value={record.telQoshimcha}
+                onChange={(e) => onUpdateRecord(record.id, 'telQoshimcha', e.target.value)}
+              />
+              <div className="flex items-center shrink-0 ml-1">
+                <button
+                  type="button"
+                  onClick={() => handleCopyPhone(record.id + "_q", record.telQoshimcha)}
+                  className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                  title="Nusxa olish"
+                >
+                  {copiedId === record.id + "_q" ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} />}
+                </button>
+                {(() => {
+                  const cleanPhone = record.telQoshimcha.replace(/[^0-9]/g, '');
+                  if (!cleanPhone) return null;
+                  const tgPhone = cleanPhone.length === 9 ? `998${cleanPhone}` : cleanPhone;
+                  return (
+                    <a
+                      href={`https://t.me/+${tgPhone}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-sky-550 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1 flex items-center justify-center"
+                      title="Telegram orqali bog'lanish"
+                    >
+                      <Send size={10} />
+                    </a>
+                  );
+                })()}
+              </div>
+            </div>
+          </td>
+        );
+      case 'natija':
+        return (
+          <td key="natija" className={`p-1 border-r border-neutral-200 dark:border-neutral-800 ${draggedCol === 'natija' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <select
+              className={`w-full text-xs font-semibold py-1.5 px-2 rounded border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${selectedOption.color || 'bg-white text-neutral-800 dark:bg-neutral-900 dark:text-neutral-100'}`}
+              value={record.natija}
+              onChange={(e) => onUpdateRecord(record.id, 'natija', e.target.value)}
+            >
+              <option value="">-- Kutilmoqda --</option>
+              <option value="Ko'tarmadi">📞 Ko'tarmadi</option>
+              <option value="O'chirilgan">📴 O'chirilgan</option>
+              <option value="O'ylab ko'radi">🤔 O'ylab ko'radi</option>
+              <option value="Maslahat qiladi">👥 Maslahat qiladi</option>
+              <option value="Xato raqam">❌ Xato raqam</option>
+              <option value="O'qimaydi">🚫 O'qimaydi</option>
+              <option value="O'qiydi">🎓 O'qiydi</option>
+              <option value="Shartnoma berildi">📄 Shartnoma berildi</option>
+            </select>
+          </td>
+        );
+      case 'izoh':
+        return (
+          <td key="izoh" className={`p-0 border-r border-neutral-200 dark:border-neutral-800 relative ${draggedCol === 'izoh' ? 'bg-neutral-100/30 dark:bg-neutral-900/30' : ''}`}>
+            <div className="flex items-center gap-1.5 px-2.5">
+              <input
+                type="text"
+                id={`izoh-input-${record.id}`}
+                placeholder="Izoh yozishingiz mumkin..."
+                className="flex-1 bg-transparent border-none py-2 text-xs text-neutral-800 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-0 min-w-[120px]"
+                value={record.izoh}
+                onChange={(e) => onUpdateRecord(record.id, 'izoh', e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setSchedulerRecordId(schedulerRecordId === record.id ? null : record.id)}
+                className={`p-1.5 rounded-lg transition-all duration-200 select-none active:scale-90 ${
+                  record.eslatmaVaqti 
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/55 dark:text-amber-450 hover:bg-amber-200' 
+                    : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                }`}
+                title={record.eslatmaVaqti ? `Eslatma soatlangany: ${new Date(record.eslatmaVaqti).toLocaleDateString()} ${new Date(record.eslatmaVaqti).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} da` : "Eslatma (Qayta qo'ngiroq) belgilash"}
+              >
+                <span className={`${record.eslatmaVaqti ? 'animate-bounce block' : ''}`}>🔔</span>
+              </button>
+            </div>
+            {record.eslatmaVaqti && (
+              <div className="mx-2.5 mb-1.5 px-2 py-0.5 rounded-md bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/50 text-[10px] text-amber-850 dark:text-amber-300 font-bold flex items-center justify-between">
+                <span className="truncate">
+                  📅 {record.eslatmaVaqti.replace('T', ' ')}: {record.eslatmaMatni || "Izohsiz"}
+                </span>
+              </div>
+            )}
+            {schedulerRecordId === record.id && (
+              <div className="absolute right-0 top-full z-10 w-72 p-3 bg-white dark:bg-neutral-900 border border-neutral-250 dark:border-neutral-800 rounded-lg shadow-xl space-y-2 text-left">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase text-amber-750 dark:text-amber-450">
+                  <span>📅 Qayta qo'ngiroq vaqti</span>
+                  <button type="button" onClick={() => setSchedulerRecordId(null)} className="text-neutral-500 hover:text-neutral-900 font-bold">×</button>
+                </div>
+                <div className="space-y-1.5">
+                  <div>
+                    <label className="block text-[9px] font-bold text-neutral-500 mb-0.5">Sana va vaqtni tanlang:</label>
+                    <input
+                      type="datetime-local"
+                      className="w-full text-xs bg-white dark:bg-neutral-850 border border-neutral-350 dark:border-neutral-700 rounded p-1 text-neutral-900 dark:text-neutral-50 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      value={record.eslatmaVaqti || ''}
+                      onChange={(e) => onUpdateRecord(record.id, 'eslatmaVaqti', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-neutral-500 mb-0.5">Eslatma sababi:</label>
+                    <input
+                      type="text"
+                      placeholder="Masalan: Erta soat 14:00 da qayta tel qiling..."
+                      className="w-full text-xs bg-white dark:bg-neutral-850 border border-neutral-350 dark:border-neutral-700 rounded p-1 text-neutral-900 dark:text-neutral-50 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      value={record.eslatmaMatni || ''}
+                      onChange={(e) => onUpdateRecord(record.id, 'eslatmaMatni', e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-1.5 pt-1">
+                  {record.eslatmaVaqti && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateRecord(record.id, 'eslatmaVaqti', '');
+                        onUpdateRecord(record.id, 'eslatmaMatni', '');
+                        setSchedulerRecordId(null);
+                      }}
+                      className="px-2 py-1 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 rounded text-[10px] font-bold transition-all text-left"
+                    >
+                      Eslatmani o'chirish
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSchedulerRecordId(null)}
+                    className="px-3 py-1 bg-neutral-200 hover:bg-neutral-305 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 rounded text-[10px] font-bold transition-all"
+                  >
+                    Yopish
+                  </button>
+                </div>
+              </div>
+            )}
+          </td>
+        );
+      default:
+        return null;
+    }
   };
 
   return (
@@ -359,6 +836,8 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
         </div>
       )}
 
+
+
       {/* Main spreadsheet rendering */}
       <div className="overflow-x-auto border-t border-neutral-200 dark:border-neutral-800">
         <table className="w-full border-collapse text-left text-xs text-neutral-700 dark:text-neutral-300">
@@ -385,37 +864,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                 1
               </td>
               
-              <th 
-                className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-pointer hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center"
-                onClick={() => handleSort('viloyat')}
-              >
-                <div className="flex items-center justify-center gap-1">
-                  Viloyati <ArrowUpDown size={10} className="opacity-60" />
-                </div>
-              </th>
-
-              <th 
-                className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-pointer hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center"
-                onClick={() => handleSort('fish')}
-              >
-                <div className="flex items-center justify-center gap-1">
-                  Familiya Ism Sharif <ArrowUpDown size={10} className="opacity-60" />
-                </div>
-              </th>
-
-              <th 
-                className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 cursor-pointer hover:bg-neutral-150 dark:hover:bg-neutral-800 text-center w-36"
-                onClick={() => handleSort('tugulganSana')}
-              >
-                <div className="flex items-center justify-center gap-1">
-                  Tugulgan sanasi <ArrowUpDown size={10} className="opacity-60" />
-                </div>
-              </th>
-
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center min-w-[180px]">Telefon raqami</th>
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center min-w-[160px]">Qo'shimcha telefon</th>
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-r border-b border-neutral-200 dark:border-neutral-800 text-center w-44">Natija (Holat)</th>
-              <th className="p-2 font-bold text-neutral-600 dark:text-neutral-350 border-b border-neutral-200 dark:border-neutral-800 text-center w-64">IZOH</th>
+              {columnIds.map(id => renderHeaderCell(id))}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800">
@@ -460,142 +909,22 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                 return (
                   <tr 
                     key={record.id} 
-                    className={`${rowBgClass} transition-colors duration-100 group border-b border-neutral-200 dark:border-neutral-800`}
+                    id={`row-${record.id}`}
+                    onClick={() => setSelectedRecordId(record.id)}
+                    className={`${rowBgClass} transition-all duration-150 group border-b border-neutral-200 dark:border-neutral-800 ${selectedRecordId === record.id ? 'bg-emerald-50/15 dark:bg-emerald-950/10 border-l-4 border-l-emerald-600 outline outline-1 outline-emerald-500/30' : ''}`}
                   >
                     {/* Row Index Number Column */}
                     <td className="bg-neutral-150/70 dark:bg-neutral-900 text-center text-[10px] font-bold text-neutral-500 dark:text-neutral-450 border-r border-neutral-200 dark:border-neutral-800 p-1.5 font-mono select-none">
                       {rowNumber}
                     </td>
 
-                    {/* Column A: Viloyati */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[150px]">
-                      <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug ${inputTxtClass}`}>
-                        {highlightText(record.viloyat, activeSearch)}
-                      </div>
-                    </td>
-
-                    {/* Column B: Familiya Ism Sharif */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[200px]">
-                      <div className={`w-full text-xs px-2.5 py-2 whitespace-normal break-words leading-snug font-bold ${inputTxtClass}`}>
-                        {highlightText(record.fish, activeSearch)}
-                      </div>
-                    </td>
-
-                    {/* Column C: Tugulgan sanasi */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800">
-                      <input
-                        type="text"
-                        className="w-full text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono text-neutral-800 dark:text-neutral-100"
-                        value={record.tugulganSana}
-                        onChange={(e) => onUpdateRecord(record.id, 'tugulganSana', e.target.value)}
-                      />
-                    </td>
-
-                    {/* Column D: Telefon raqami — FAQAT O'QISH (readonly) */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800 min-w-[180px]">
-                      <div className="flex items-center justify-between group/cell relative px-2.5 py-2">
-                        <span className="flex-1 text-xs font-mono text-neutral-800 dark:text-neutral-100 select-all whitespace-nowrap">
-                          {highlightText(record.tel, activeSearch)}
-                        </span>
-                        <div className="flex items-center shrink-0 ml-1">
-                          <button
-                            onClick={() => handleCopyPhone(record.id, record.tel)}
-                            className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                            title="Nusxa olish"
-                          >
-                            {copiedId === record.id ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} />}
-                          </button>
-                          {(() => {
-                            const cleanPhone = record.tel.replace(/[^0-9]/g, '');
-                            const tgPhone = cleanPhone.length === 9 ? `998${cleanPhone}` : cleanPhone;
-                            return (
-                              <a
-                                href={`https://t.me/+${tgPhone}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-sky-550 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1 flex items-center justify-center"
-                                title="Telegram orqali bog'lanish"
-                              >
-                                <Send size={10} />
-                              </a>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Column E: Qo'shimcha telefon */}
-                    <td className="p-0 border-r border-neutral-200 dark:border-neutral-800">
-                      <div className="flex items-center justify-between group/cell relative pr-1">
-                        <input
-                          type="text"
-                          className="flex-1 text-xs bg-transparent focus:bg-white focus:dark:bg-[#151515] px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-mono text-neutral-800 dark:text-neutral-100"
-                          value={record.telQoshimcha}
-                          onChange={(e) => onUpdateRecord(record.id, 'telQoshimcha', e.target.value)}
-                        />
-                        <div className="flex items-center shrink-0 ml-1">
-                          <button
-                            onClick={() => handleCopyPhone(record.id + "_q", record.telQoshimcha)}
-                            className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-                            title="Nusxa olish"
-                          >
-                            {copiedId === record.id + "_q" ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} />}
-                          </button>
-                          {(() => {
-                            const cleanPhone = record.telQoshimcha.replace(/[^0-9]/g, '');
-                            if (!cleanPhone) return null;
-                            const tgPhone = cleanPhone.length === 9 ? `998${cleanPhone}` : cleanPhone;
-                            return (
-                              <a
-                                href={`https://t.me/+${tgPhone}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="p-1 rounded bg-neutral-200 dark:bg-neutral-800 text-neutral-500 hover:text-sky-550 hover:bg-neutral-300 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1 flex items-center justify-center"
-                                title="Telegram orqali bog'lanish"
-                              >
-                                <Send size={10} />
-                              </a>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Column F: Natija (Holat) */}
-                    <td className="p-1 border-r border-neutral-200 dark:border-neutral-800">
-                      <select
-                        className={`w-full text-xs font-semibold py-1.5 px-2 rounded border border-neutral-200 dark:border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${selectedOption.color || 'bg-white text-neutral-800 dark:bg-neutral-900 dark:text-neutral-100'}`}
-                        value={record.natija}
-                        onChange={(e) => onUpdateRecord(record.id, 'natija', e.target.value)}
-                      >
-                        <option value="">-- Kutilmoqda --</option>
-                        <option value="Ko'tarmadi">📞 Ko'tarmadi</option>
-                        <option value="O'chirilgan">📴 O'chirilgan</option>
-                        <option value="O'ylab ko'radi">🤔 O'ylab ko'radi</option>
-                        <option value="Maslahat qiladi">👥 Maslahat qiladi</option>
-                        <option value="Xato raqam">❌ Xato raqam</option>
-                        <option value="O'qimaydi">🚫 O'qimaydi</option>
-                        <option value="O'qiydi">🎓 O'qiydi</option>
-                        <option value="Shartnoma berildi">📄 Shartnoma berildi</option>
-                      </select>
-                    </td>
-
-                    {/* Column G: IZOH */}
-                    <td className="p-0">
-                      <input
-                        type="text"
-                        placeholder="Izoh yozishingiz mumkin..."
-                        className="w-full text-xs bg-transparent focus:bg-white focus:dark:bg-neutral-800 px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all text-neutral-800 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-600"
-                        value={record.izoh}
-                        onChange={(e) => onUpdateRecord(record.id, 'izoh', e.target.value)}
-                      />
-                    </td>
+                    {columnIds.map(id => renderCell(id, record, inputTxtClass, selectedOption))}
                   </tr>
                 );
               })
             ) : (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-neutral-400">
+                <td colSpan={columnIds.length + 1} className="p-8 text-center text-neutral-400">
                   <AlertCircle size={24} className="mx-auto text-neutral-300 mb-2" />
                   Ushbu shartlarga mos keladigan ma'lumotlar topilmadi.
                 </td>

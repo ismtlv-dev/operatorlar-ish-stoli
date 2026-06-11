@@ -7,28 +7,58 @@ import React, { useState } from 'react';
 import { Operator } from '../types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell
+  PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts';
-import { BarChart3, PieChart as PieIcon, TrendingUp, Users, MapPin, Trophy, Target, Star } from 'lucide-react';
+import { 
+  BarChart3, PieChart as PieIcon, TrendingUp, Users, MapPin, 
+  Trophy, Target, Star, ChevronRight, Activity, Calendar, ArrowUpRight, Award, Flame
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface AnalyticsPanelProps {
   operators: Operator[];
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: 'rgba(15, 15, 15, 0.95)',
-  border: '1px solid #333',
-  borderRadius: '10px',
-  color: '#f0f0f0',
-  fontSize: '12px',
+const TOOLTIP_STYLE_LIGHT = {
+  backgroundColor: '#ffffff',
+  border: '1px solid #f0f0f0',
+  borderRadius: '12px',
+  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+  color: '#0f172a',
+  fontSize: '11px',
+  fontWeight: '600',
+  padding: '10px 14px',
 };
-const GRID_COLOR_LIGHT = '#e5e5e5';
-const GRID_COLOR_DARK = '#222';
+
+const TOOLTIP_STYLE_DARK = {
+  backgroundColor: '#0a0a0a',
+  border: '1px solid #262626',
+  borderRadius: '12px',
+  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.3)',
+  color: '#f5f5f5',
+  fontSize: '11px',
+  fontWeight: '600',
+  padding: '10px 14px',
+};
+
+// Beautiful color scheme for status representation matching the user's theme in clear outlines
+const STATUS_META: Record<string, { label: string; color: string; border: string; bg: string; text: string }> = {
+  "Ko'tarmadi": { label: "Ko'tarmadi", color: '#f97316', border: 'border-orange-500/40', bg: 'bg-orange-500', text: 'text-orange-500' },
+  "O'chirilgan": { label: "O'chirilgan", color: '#737373', border: 'border-neutral-500/40', bg: 'bg-neutral-500', text: 'text-neutral-500' },
+  "O'ylab ko'radi": { label: "O'ylab ko'radi", color: '#eab308', border: 'border-yellow-500/40', bg: 'bg-yellow-500', text: 'text-yellow-500' },
+  "Maslahat qiladi": { label: "Maslahat qiladi", color: '#06b6d4', border: 'border-cyan-500/40', bg: 'bg-cyan-500', text: 'text-cyan-500' },
+  "Xato raqam": { label: "Xato raqam", color: '#f43f5e', border: 'border-rose-500/40', bg: 'bg-rose-500', text: 'text-rose-500' },
+  "O'qimaydi": { label: "O'qimaydi", color: '#ef4444', border: 'border-red-500/40', bg: 'bg-red-500', text: 'text-red-500' },
+  "O'qiydi": { label: "O'qiydi", color: '#6366f1', border: 'border-indigo-500/40', bg: 'bg-indigo-500', text: 'text-indigo-500' },
+  "Shartnoma berildi": { label: "Shartnoma berildi", color: '#10b981', border: 'border-emerald-500/40', bg: 'bg-emerald-500', text: 'text-emerald-500' },
+  "Kutilmoqda": { label: "Kutilmoqda", color: '#a3a3a3', border: 'border-neutral-400/30', bg: 'bg-neutral-400', text: 'text-neutral-400' },
+};
 
 export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'leaderboard'>('overview');
+  const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
 
-  // ── Operator stats ──────────────────────────────────────────────
+  // ── Calculate Operator statistics & clean metrics ───────────────────────
   const operatorData = operators.map(op => {
     const records = op.records || [];
     const kotarmadi = records.filter(r => r.natija === "Ko'tarmadi").length;
@@ -39,7 +69,8 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     const oqimaydi = records.filter(r => r.natija === "O'qimaydi").length;
     const oqiydi = records.filter(r => r.natija === "O'qiydi").length;
     const shartnomaBerildi = records.filter(r => r.natija === "Shartnoma berildi").length;
-    const kutilmoqda = records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
+    const kutilmoqda = records.filter(r => !r.natija || r.natija === 'Kutilmoqda' || r.natija === '').length;
+    
     const processed = records.length - kutilmoqda;
     const percent = records.length > 0 ? Math.round((processed / records.length) * 100) : 0;
 
@@ -47,71 +78,84 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     const displayName = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[1].charAt(0)}.` : op.name;
 
     return {
-      name: displayName, fullName: op.name,
-      "Ko'tarmadi": kotarmadi, "O'chirilgan": ochirilgan,
-      "O'ylab ko'radi": oylabKoradi, "Maslahat qiladi": maslahatQiladi,
-      "Xato raqam": xatoRaqam, "O'qimaydi": oqimaydi, "O'qiydi": oqiydi, "Shartnoma berildi": shartnomaBerildi, "Kutilmoqda": kutilmoqda,
-      total: records.length, processed, percent
+      name: displayName, 
+      fullName: op.name,
+      "Ko'tarmadi": kotarmadi, 
+      "O'chirilgan": ochirilgan,
+      "O'ylab ko'radi": oylabKoradi, 
+      "Maslahat qiladi": maslahatQiladi,
+      "Xato raqam": xatoRaqam, 
+      "O'qimaydi": oqimaydi, 
+      "O'qiydi": oqiydi, 
+      "Shartnoma berildi": shartnomaBerildi, 
+      "Kutilmoqda": kutilmoqda,
+      total: records.length, 
+      processed, 
+      percent
     };
   });
 
-  // ── Leaderboard (sorted by percent) ────────────────────────────
-  const leaderboard = [...operatorData].sort((a, b) => b.percent - a.percent);
+  // ── Leaderboard logic ────────────────────────────────────────────────────────
+  const leaderboard = [...operatorData].sort((a, b) => {
+    // Sort primarily by contract value, then by process percentage
+    if (b["Shartnoma berildi"] !== a["Shartnoma berildi"]) {
+      return b["Shartnoma berildi"] - a["Shartnoma berildi"];
+    }
+    return b.percent - a.percent;
+  });
 
-  // ── Viloyat data ───────────────────────────────────────────────
-  const viloyatDataMap: Record<string, { 
-    total: number; 
-    kotarmadi: number; 
-    ochirilgan: number; 
-    oylabKoradi: number; 
-    maslahatQiladi: number; 
-    xatoRaqam: number; 
-    oqimaydi: number;
-    oqiydi: number;
-    shartnomaBerildi: number;
-    kutilmoqda: number;
-  }> = {};
-  
+  // ── Hududiy / Regional Map calculations ────────────────────────────────────
+  const viloyatMap: Record<string, Record<string, number>> = {};
   operators.forEach(op => {
     (op.records || []).forEach(rec => {
-      const viloyat = rec.viloyat?.trim() || "Noma'lum";
-      if (!viloyatDataMap[viloyat]) {
-        viloyatDataMap[viloyat] = { 
-          total: 0, 
-          kotarmadi: 0, 
-          ochirilgan: 0, 
-          oylabKoradi: 0, 
-          maslahatQiladi: 0, 
-          xatoRaqam: 0, 
-          oqimaydi: 0, 
-          oqiydi: 0,
-          shartnomaBerildi: 0,
-          kutilmoqda: 0 
+      const v = rec.viloyat?.trim() || "Noma'lum";
+      if (!viloyatMap[v]) {
+        viloyatMap[v] = {
+          total: 0,
+          "Ko'tarmadi": 0,
+          "O'chirilgan": 0,
+          "O'ylab ko'radi": 0,
+          "Maslahat qiladi": 0,
+          "Xato raqam": 0,
+          "O'qimaydi": 0,
+          "O'qiydi": 0,
+          "Shartnoma berildi": 0,
+          "Kutilmoqda": 0
         };
       }
-      viloyatDataMap[viloyat].total++;
-      if (rec.natija === "Ko'tarmadi") viloyatDataMap[viloyat].kotarmadi++;
-      else if (rec.natija === "O'chirilgan") viloyatDataMap[viloyat].ochirilgan++;
-      else if (rec.natija === "O'ylab ko'radi") viloyatDataMap[viloyat].oylabKoradi++;
-      else if (rec.natija === "Maslahat qiladi") viloyatDataMap[viloyat].maslahatQiladi++;
-      else if (rec.natija === "Xato raqam") viloyatDataMap[viloyat].xatoRaqam++;
-      else if (rec.natija === "O'qimaydi") viloyatDataMap[viloyat].oqimaydi++;
-      else if (rec.natija === "O'qiydi") viloyatDataMap[viloyat].oqiydi++;
-      else if (rec.natija === "Shartnoma berildi") viloyatDataMap[viloyat].shartnomaBerildi++;
-      else viloyatDataMap[viloyat].kutilmoqda++;
+      viloyatMap[v].total++;
+      if (rec.natija === "Ko'tarmadi") viloyatMap[v]["Ko'tarmadi"]++;
+      else if (rec.natija === "O'chirilgan") viloyatMap[v]["O'chirilgan"]++;
+      else if (rec.natija === "O'ylab ko'radi") viloyatMap[v]["O'ylab ko'radi"]++;
+      else if (rec.natija === "Maslahat qiladi") viloyatMap[v]["Maslahat qiladi"]++;
+      else if (rec.natija === "Xato raqam") viloyatMap[v]["Xato raqam"]++;
+      else if (rec.natija === "O'qimaydi") viloyatMap[v]["O'qimaydi"]++;
+      else if (rec.natija === "O'qiydi") viloyatMap[v]["O'qiydi"]++;
+      else if (rec.natija === "Shartnoma berildi") viloyatMap[v]["Shartnoma berildi"]++;
+      else viloyatMap[v]["Kutilmoqda"]++;
     });
   });
 
-  const districtData = Object.entries(viloyatDataMap).map(([viloyat, s]) => ({
-    name: viloyat,
-    "Ko'tarmadi": s.kotarmadi, "O'chirilgan": s.ochirilgan,
-    "O'ylab ko'radi": s.oylabKoradi, "Maslahat qiladi": s.maslahatQiladi,
-    "Xato raqam": s.xatoRaqam, "O'qimaydi": s.oqimaydi, "O'qiydi": s.oqiydi, "Shartnoma berildi": s.shartnomaBerildi, "Kutilmoqda": s.kutilmoqda,
-    total: s.total
-  })).sort((a, b) => b.total - a.total).slice(0, 15);
+  const regionalData = Object.entries(viloyatMap)
+    .map(([name, s]) => ({
+      name,
+      total: s.total,
+      ...s
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
 
-  // ── Global totals ───────────────────────────────────────────────
-  let totalCalls = 0, totalKotarmadi = 0, totalOchirilgan = 0, totalOylabKoradi = 0, totalMaslahatQiladi = 0, totalXatoRaqam = 0, totalOqimaydi = 0, totalOqiydi = 0, totalShartnomaBerildi = 0;
+  // ── System-wide summaries ──────────────────────────────────────────────────
+  let totalCalls = 0;
+  let totalKotarmadi = 0;
+  let totalOchirilgan = 0;
+  let totalOylabKoradi = 0;
+  let totalMaslahatQiladi = 0;
+  let totalXatoRaqam = 0;
+  let totalOqimaydi = 0;
+  let totalOqiydi = 0;
+  let totalShartnomaBerildi = 0;
+
   operators.forEach(op => {
     const r = op.records || [];
     totalCalls += r.length;
@@ -124,238 +168,471 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     totalOqiydi += r.filter(x => x.natija === "O'qiydi").length;
     totalShartnomaBerildi += r.filter(x => x.natija === "Shartnoma berildi").length;
   });
+
   const totalKutilmoqda = totalCalls - (totalKotarmadi + totalOchirilgan + totalOylabKoradi + totalMaslahatQiladi + totalXatoRaqam + totalOqimaydi + totalOqiydi + totalShartnomaBerildi);
   const totalProcessed = totalCalls - totalKutilmoqda;
   const overallPct = totalCalls > 0 ? Math.round((totalProcessed / totalCalls) * 100) : 0;
+  const conversionPct = totalProcessed > 0 ? Math.round((totalShartnomaBerildi / totalProcessed) * 100) : 0;
 
-  const overallPieData = [
+  const donutData = [
     { name: "Ko'tarmadi", value: totalKotarmadi, color: '#f97316' },
-    { name: "O'chirilgan", value: totalOchirilgan, color: '#737373' },
+    { name: "O'chirilgan", value: totalOchirilgan, color: '#64748b' },
     { name: "O'ylab ko'radi", value: totalOylabKoradi, color: '#eab308' },
-    { name: "Maslahat qiladi", value: totalMaslahatQiladi, color: '#0ea5e9' },
+    { name: "Maslahat qiladi", value: totalMaslahatQiladi, color: '#06b6d4' },
     { name: "Xato raqam", value: totalXatoRaqam, color: '#f43f5e' },
     { name: "O'qimaydi", value: totalOqimaydi, color: '#ef4444' },
     { name: "O'qiydi", value: totalOqiydi, color: '#6366f1' },
     { name: "Shartnoma berildi", value: totalShartnomaBerildi, color: '#10b981' },
-    { name: "Kutilmoqda", value: totalKutilmoqda, color: '#a3a3a3' },
+    { name: "Kutilmoqda", value: totalKutilmoqda, color: '#cbd5e1' }
   ].filter(d => d.value > 0);
 
-  const medal = (i: number) => {
-    if (i === 0) return { icon: '🥇', cls: 'medal-gold text-yellow-400', bg: 'bg-yellow-500/10 dark:bg-yellow-900/20', ring: 'ring-yellow-400/30' };
-    if (i === 1) return { icon: '🥈', cls: 'medal-silver text-neutral-400', bg: 'bg-neutral-500/10 dark:bg-neutral-700/20', ring: 'ring-neutral-400/30' };
-    if (i === 2) return { icon: '🥉', cls: 'medal-bronze text-orange-600', bg: 'bg-orange-500/10 dark:bg-orange-900/20', ring: 'ring-orange-400/30' };
-    return { icon: `${i + 1}`, cls: 'text-neutral-500', bg: 'bg-white dark:bg-neutral-900', ring: 'ring-transparent' };
+  const getRankBadge = (idx: number) => {
+    switch (idx) {
+      case 0:
+        return { text: '🥇 Gʻolib', style: 'border-amber-500/60 text-amber-500 bg-amber-500/5' };
+      case 1:
+        return { text: '🥈 Kuchli', style: 'border-[#94a3b8]/60 text-[#94a3b8] bg-[#94a3b8]/5' };
+      case 2:
+        return { text: '🥉 Bronza', style: 'border-[#b45309]/60 text-[#b45309] bg-[#b45309]/5' };
+      default:
+        return { text: `${idx + 1}-oʻrin`, style: 'border-neutral-500/20 text-neutral-400' };
+    }
   };
 
-  const cardClass = "bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-sm";
+  // Outer container variants for nice stagged enter
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: { staggerChildren: 0.05 }
+    }
+  };
+
+  const cardVariants = {
+    hidden: { opacity: 0, y: 15 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 100 } }
+  };
 
   return (
-    <div className="space-y-5">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="space-y-6">
+      
+      {/* ── PREMIUM OUTLINE STATS / HEAD SHELF ────────────────────────────────── */}
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
         {[
-          { icon: <TrendingUp size={22} />, label: 'Jami qo\'ng\'iroqlar', value: `${totalProcessed} / ${totalCalls}`, sub: `${overallPct}% bajarildi`, color: 'emerald', subColor: 'text-emerald-600 dark:text-emerald-400' },
-          { icon: <Users size={22} />, label: 'Operatorlar soni', value: `${operators.length} nafar`, sub: 'Tizimda faol xodimlar', color: 'blue', subColor: 'text-neutral-500' },
-          { icon: <MapPin size={22} />, label: 'Viloyatlar soni', value: `${Object.keys(viloyatDataMap).length} ta`, sub: 'Qamrab olingan viloyatlar', color: 'purple', subColor: 'text-neutral-500' },
-          { icon: <Target size={22} />, label: 'Mijozlar bilan aloqa', value: `${totalProcessed} ta`, sub: 'Aloqa o\'rnatilganlar', color: 'rose', subColor: 'text-rose-600 dark:text-rose-400' },
-        ].map(({ icon, label, value, sub, color, subColor }) => (
-          <div key={label} className={`${cardClass} p-4 flex items-center gap-4`}>
-            <div className={`p-3 bg-${color}-100 dark:bg-${color}-900/30 rounded-xl text-${color}-600 dark:text-${color}-400 shrink-0`}>
-              {icon}
+          { 
+            icon: <Flame className="w-5 h-5 text-emerald-500 animate-pulse" />, 
+            label: "Muvaffaqiyatli Bitim", 
+            value: `${totalShartnomaBerildi} ta Shartnoma`, 
+            sub: `Konversiya: ${conversionPct}%`, 
+            border: 'border-emerald-500/30 hover:border-emerald-500/70' 
+          },
+          { 
+            icon: <Activity className="w-5 h-5 text-indigo-500" />, 
+            label: "Jami Bajarilgan Ishlar", 
+            value: `${totalProcessed} / ${totalCalls}`, 
+            sub: `${overallPct}% Yuklama yakunlandi`, 
+            border: 'border-indigo-500/30 hover:border-indigo-500/70' 
+          },
+          { 
+            icon: <Users className="w-5 h-5 text-cyan-500" />, 
+            label: "Faol Operatorlar", 
+            value: `${operators.length} Operator`, 
+            sub: "Onlayn tarmoqda faol", 
+            border: 'border-cyan-500/30 hover:border-cyan-500/70' 
+          },
+          { 
+            icon: <MapPin className="w-5 h-5 text-amber-500" />, 
+            label: "Hududiy Qamrov", 
+            value: `${Object.keys(viloyatMap).length} ta Viloyat`, 
+            sub: "Respublika bo'ylab qamrov", 
+            border: 'border-amber-500/30 hover:border-amber-500/70' 
+          },
+        ].map((item, idx) => (
+          <motion.div 
+            key={idx}
+            variants={cardVariants}
+            className={`cursor-default bg-transparent backdrop-blur-xs border ${item.border} rounded-2xl p-5 shadow-xs transition-all duration-300 flex items-center justify-between gap-4`}
+          >
+            <div className="space-y-1">
+              <span className="text-[10px] tracking-widest font-black uppercase text-neutral-400 dark:text-neutral-500 block">
+                {item.label}
+              </span>
+              <h3 className="text-xl font-black text-neutral-850 dark:text-neutral-100 tracking-tight">
+                {item.value}
+              </h3>
+              <p className="text-xs font-semibold text-neutral-550 dark:text-neutral-400">
+                {item.sub}
+              </p>
             </div>
-            <div className="min-w-0">
-              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 font-semibold uppercase tracking-wider truncate">{label}</p>
-              <p className="text-xl font-black text-neutral-900 dark:text-neutral-100">{value}</p>
-              <p className={`text-[10px] font-semibold ${subColor}`}>{sub}</p>
+            <div className="p-3 bg-neutral-100/50 dark:bg-neutral-900/50 rounded-xl border border-neutral-200/40 dark:border-neutral-800/40 shadow-2xs shrink-0 flex items-center justify-center">
+              {item.icon}
             </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-xl w-fit">
-        {(['overview', 'leaderboard'] as const).map(tab => (
+      {/* ── CENTRAL SEGMENTED CONTROLS & TIMELINE ───────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-200 dark:border-neutral-800/80 pb-4 gap-3">
+        <div className="inline-flex p-1 bg-neutral-100/80 dark:bg-neutral-900/80 border border-neutral-200/50 dark:border-neutral-800/50 rounded-xl shrink-0 self-start">
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeTab === tab
-                ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+            onClick={() => setActiveTab('overview')}
+            className={`px-5 py-2 rounded-lg text-xs font-black tracking-wide transition-all uppercase cursor-pointer flex items-center gap-2 ${
+              activeTab === 'overview'
+                ? 'bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800/60 shadow-xs'
+                : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-350'
             }`}
           >
-            {tab === 'overview' ? '📊 Umumiy ko\'rinish' : '🏆 Reyting (Leaderboard)'}
+            <BarChart3 className="w-3.5 h-3.5" />
+            Umumiy Diagnostika
           </button>
-        ))}
+          <button
+            onClick={() => setActiveTab('leaderboard')}
+            className={`px-5 py-2 rounded-lg text-xs font-black tracking-wide transition-all uppercase cursor-pointer flex items-center gap-2 ${
+              activeTab === 'leaderboard'
+                ? 'bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-800/60 shadow-xs'
+                : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-350'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            Liderlar Reytingi
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 self-end sm:self-center">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-100/50 dark:bg-neutral-900/40 border border-neutral-200/60 dark:border-neutral-800/60 rounded-lg text-[10px] font-bold text-neutral-400 dark:text-neutral-500">
+            <Calendar className="w-3.5 h-3.5 text-neutral-450" />
+            <span>Tashkent Timezone:</span>
+            <span className="font-mono text-neutral-700 dark:text-neutral-300 font-bold">
+              {new Date().toLocaleDateString('uz-UZ')}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {activeTab === 'overview' && (
-        <>
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            {/* Operator Bar Chart */}
-            <div className={`${cardClass} p-4 xl:col-span-2`}>
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart3 size={18} className="text-emerald-500" />
-                <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Operatorlar bo'yicha ko'rsatkichlar</h3>
+      {/* ── ANIMATED TAB FRAMES ────────────────────────────────────────────── */}
+      <AnimatePresence mode="wait">
+        {activeTab === 'overview' && (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-6"
+          >
+            {/* Top row - Performance split & status ratio */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Operator performance stacked bar-chart */}
+              <div className="bg-transparent border border-neutral-200 dark:border-neutral-800/80 rounded-2xl p-5 shadow-2xs lg:col-span-2 flex flex-col justify-between">
+                <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800/50 pb-3 mb-4">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-neutral-450 dark:text-neutral-500">Tahliliy ustunlar</span>
+                    <h3 className="text-sm font-black text-neutral-900 dark:text-white flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-violet-500" />
+                      Xodimlarning Ish Unumdorligi
+                    </h3>
+                  </div>
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+
+                <div className="h-[310px] w-full text-[10px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={operatorData} margin={{ top: 10, right: 5, left: -25, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(100,116,139,0.08)" />
+                      <XAxis 
+                        dataKey="name" 
+                        stroke="#737373" 
+                        tick={{ fontSize: 9, fontWeight: '700' }} 
+                        tickLine={false} 
+                        axisLine={false}
+                      />
+                      <YAxis 
+                        stroke="#737373" 
+                        tick={{ fontSize: 9, fontWeight: '700' }} 
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip 
+                        contentStyle={document.documentElement.classList.contains('dark') ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT} 
+                        labelFormatter={(label) => {
+                          const op = operatorData.find(o => o.name === label);
+                          return op ? op.fullName : label;
+                        }}
+                      />
+                      <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 9, fontWeight: 'bold', paddingTop: '10px' }} />
+                      <Bar dataKey="Ko'tarmadi" stackId="a" fill="#f97316" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="O'chirilgan" stackId="a" fill="#737373" />
+                      <Bar dataKey="O'ylab ko'radi" stackId="a" fill="#eab308" />
+                      <Bar dataKey="Maslahat qiladi" stackId="a" fill="#06b6d4" />
+                      <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
+                      <Bar dataKey="O'qimaydi" stackId="a" fill="#ef4444" />
+                      <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
+                      <Bar dataKey="Shartnoma berildi" stackId="a" fill="#10b981" />
+                      <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" stroke="rgba(0,0,0,0.05)" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div className="h-[300px] w-full">
+
+              {/* Advanced glass donut ratio map */}
+              <div className="bg-transparent border border-neutral-200 dark:border-neutral-800/80 rounded-2xl p-5 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800/50 pb-3 mb-4">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-neutral-450 dark:text-neutral-500">Foiz ulushi</span>
+                    <h3 className="text-sm font-black text-neutral-900 dark:text-white flex items-center gap-2">
+                      <PieIcon className="w-4 h-4 text-emerald-500" />
+                      Joriy Natija Strukturasi
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="my-2 h-[180px] relative flex items-center justify-center">
+                  {donutData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie 
+                          data={donutData} 
+                          cx="50%" 
+                          cy="50%" 
+                          innerRadius={55} 
+                          outerRadius={75} 
+                          paddingAngle={3} 
+                          dataKey="value"
+                        >
+                          {donutData.map((entry, idx) => (
+                            <Cell 
+                              key={idx} 
+                              fill={entry.color} 
+                              stroke="none" 
+                              style={{ 
+                                outline: hoveredMetric === entry.name ? `2px solid ${entry.color}` : 'none',
+                                filter: hoveredMetric && hoveredMetric !== entry.name ? 'opacity(30%)' : 'none',
+                                transition: 'all 200ms ease'
+                              }}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={document.documentElement.classList.contains('dark') ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="text-xs text-neutral-400 font-bold italic">Bazada yozuvlar yo'q</div>
+                  )}
+
+                  {donutData.length > 0 && (
+                    <div className="absolute flex flex-col items-center justify-center">
+                      <span className="text-2xl font-black text-neutral-800 dark:text-neutral-100 tracking-tight">{overallPct}%</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Ishlandi</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Grid stats labels - beautifully hollowed outlines style */}
+                <div className="grid grid-cols-2 gap-1.5 pt-4 border-t border-neutral-100 dark:border-neutral-800/60 max-h-[140px] overflow-y-auto">
+                  {donutData.map((entry, idx) => {
+                    const meta = STATUS_META[entry.name] || STATUS_META["Kutilmoqda"];
+                    return (
+                      <div 
+                        key={idx} 
+                        onMouseEnter={() => setHoveredMetric(entry.name)}
+                        onMouseLeave={() => setHoveredMetric(null)}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border ${meta.border} bg-transparent transition-all duration-200 cursor-pointer`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${meta.bg}`} />
+                          <span className="text-neutral-600 dark:text-neutral-300 font-bold truncate text-[10px]">{entry.name}</span>
+                        </div>
+                        <span className={`font-mono font-black text-[10px] pl-1 shrink-0 ${meta.text}`}>
+                          {entry.value}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Regional breakdown table/graphics block */}
+            <div className="bg-transparent border border-neutral-200 dark:border-neutral-800/80 rounded-2xl p-5 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800/50 pb-3 mb-4">
+                <div className="space-y-0.5">
+                  <span className="text-[9px] uppercase tracking-wider font-extrabold text-neutral-450 dark:text-neutral-500">Hududlar bo'yicha</span>
+                  <h3 className="text-sm font-black text-neutral-900 dark:text-white flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-cyan-500" />
+                    Viloyatlararo Qamrov tahlili (Top 10)
+                  </h3>
+                </div>
+              </div>
+
+              <div className="h-[260px] w-full text-[10px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={operatorData} margin={{ top: 10, right: 10, left: -25, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR_LIGHT} />
-                    <XAxis dataKey="name" stroke="#888" tick={{ fontSize: 11 }} />
-                    <YAxis stroke="#888" tick={{ fontSize: 11 }} />
-                    <Tooltip 
-                      contentStyle={TOOLTIP_STYLE} 
-                      labelFormatter={(label) => {
-                        const op = operatorData.find(o => o.name === label);
-                        return op ? op.fullName : label;
-                      }}
+                  <BarChart data={regionalData} margin={{ top: 10, right: 10, left: -25, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(100,116,139,0.08)" />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#888888" 
+                      tick={{ fontSize: 9, fontWeight: '700' }} 
+                      tickLine={false} 
+                      axisLine={false}
                     />
-                    <Legend iconSize={10} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="Ko'tarmadi" stackId="a" fill="#f97316" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="O'chirilgan" stackId="a" fill="#737373" />
-                    <Bar dataKey="O'ylab ko'radi" stackId="a" fill="#eab308" />
-                    <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
-                    <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
-                    <Bar dataKey="O'qimaydi" stackId="a" fill="#ef4444" />
-                    <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
-                    <Bar dataKey="Shartnoma berildi" stackId="a" fill="#10b981" />
-                    <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />
+                    <YAxis 
+                      stroke="#888888" 
+                      tick={{ fontSize: 9, fontWeight: '700' }} 
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip contentStyle={document.documentElement.classList.contains('dark') ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT} />
+                    <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 9, fontWeight: 'bold', paddingTop: '10px' }} />
+                    <Bar dataKey="Ko'tarmadi" stackId="b" fill="#f97316" />
+                    <Bar dataKey="O'chirilgan" stackId="b" fill="#737373" />
+                    <Bar dataKey="O'ylab ko'radi" stackId="b" fill="#eab308" />
+                    <Bar dataKey="Maslahat qiladi" stackId="b" fill="#06b6d4" />
+                    <Bar dataKey="Xato raqam" stackId="b" fill="#f43f5e" />
+                    <Bar dataKey="O'qimaydi" stackId="b" fill="#ef4444" />
+                    <Bar dataKey="O'qiydi" stackId="b" fill="#6366f1" />
+                    <Bar dataKey="Shartnoma berildi" stackId="b" fill="#10b981" />
+                    <Bar dataKey="Kutilmoqda" stackId="b" fill="#cbd5e1" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
+          </motion.div>
+        )}
 
-            {/* Pie Chart */}
-            <div className={`${cardClass} p-4`}>
-              <div className="flex items-center gap-2 mb-3">
-                <PieIcon size={18} className="text-emerald-500" />
-                <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Umumiy holat</h3>
+        {/* ── LEADERBOARD TAB DETAIL ────────────────────────────────────────── */}
+        {activeTab === 'leaderboard' && (
+          <motion.div
+            key="leaderboard"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800/60 mb-2 gap-3">
+              <div>
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-neutral-450 dark:text-neutral-500">Natijadorlik bahosi</span>
+                <h3 className="text-sm font-black text-neutral-900 dark:text-white flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-500" />
+                  Muvaffaqiyatli Bitimlar (Shartnomalar) Reytingi
+                </h3>
               </div>
-              <div className="h-[200px]">
-                {overallPieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={overallPieData} cx="50%" cy="50%" innerRadius={55} outerRadius={82} paddingAngle={2} dataKey="value">
-                        {overallPieData.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} stroke="none" />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-xs text-neutral-500 dark:text-neutral-400">
-                    Ma'lumot yo'q
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 mt-2 pt-2 border-t border-neutral-200 dark:border-neutral-700 text-[10px]">
-                {overallPieData.map((entry, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                    <span className="text-neutral-600 dark:text-neutral-400 truncate">{entry.name}:</span>
-                    <span className="font-bold font-mono text-neutral-900 dark:text-neutral-100">{entry.value}</span>
-                  </div>
-                ))}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200/50 dark:border-neutral-800/50 bg-neutral-100/30 dark:bg-neutral-900/40 text-[10px] text-neutral-450 font-bold select-none">
+                <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                Dillar soni + Foiz nisbiy ko'rsatkich
               </div>
             </div>
-          </div>
 
-          {/* District Chart */}
-          <div className={`${cardClass} p-4`}>
-            <div className="flex items-center gap-2 mb-4">
-              <MapPin size={18} className="text-emerald-500" />
-              <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Top 15 Viloyatlar bo'yicha qamrov</h3>
-            </div>
-            <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={districtData} margin={{ top: 5, right: 10, left: -25, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR_LIGHT} />
-                  <XAxis dataKey="name" stroke="#888" angle={-40} textAnchor="end" interval={0} height={65} tick={{ fontSize: 10 }} />
-                  <YAxis stroke="#888" tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  <Legend iconSize={10} iconType="circle" wrapperStyle={{ top: -8, fontSize: 11 }} />
-                  <Bar dataKey="Ko'tarmadi" stackId="a" fill="#f97316" />
-                  <Bar dataKey="O'chirilgan" stackId="a" fill="#737373" />
-                  <Bar dataKey="O'ylab ko'radi" stackId="a" fill="#eab308" />
-                  <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
-                  <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
-                  <Bar dataKey="O'qimaydi" stackId="a" fill="#ef4444" />
-                  <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
-                  <Bar dataKey="Shartnoma berildi" stackId="a" fill="#10b981" />
-                  <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </>
-      )}
+            {leaderboard.length === 0 ? (
+              <div className="py-12 text-center text-xs text-neutral-400 font-bold border border-dashed border-neutral-200 dark:border-neutral-800 rounded-2xl">
+                Bazada hech qanday operator ma'lumotlari topilmadi.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {leaderboard.map((op, i) => {
+                  const badge = getRankBadge(i);
+                  const shartnomalar = op["Shartnoma berildi"];
+                  const processingPerc = op.percent;
+                  
+                  return (
+                    <motion.div
+                      key={op.fullName}
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.04 }}
+                      className={`group relative p-5 bg-transparent border rounded-2xl transition-all duration-300 hover:shadow-xs overflow-hidden flex flex-col justify-between ${
+                        i === 0 
+                          ? 'border-amber-400/40 dark:border-amber-500/30 shadow-xs shadow-amber-500/5' 
+                          : 'border-neutral-200 dark:border-neutral-800/80'
+                      }`}
+                    >
+                      {/* Glow effect for No1 */}
+                      {i === 0 && (
+                        <div className="absolute -right-24 -top-24 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl pointer-events-none group-hover:bg-amber-500/10 transition-colors" />
+                      )}
 
-      {/* 🏆 LEADERBOARD TAB */}
-      {activeTab === 'leaderboard' && (
-        <div className={`${cardClass} p-5`}>
-          <div className="flex items-center gap-2 mb-5">
-            <Trophy size={20} className="text-yellow-500" />
-            <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Operator Reytingi — % bajarilishi bo'yicha</h3>
-          </div>
+                      <div className="space-y-4">
+                        {/* Header details */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-xl bg-neutral-140 dark:bg-neutral-900 flex items-center justify-center font-black text-neutral-800 dark:text-neutral-250 text-sm border border-neutral-200 dark:border-neutral-800 shadow-2xs select-none">
+                              {op.name.charAt(0)}
+                            </span>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-black text-neutral-900 dark:text-neutral-100 group-hover:text-amber-500 transition-colors truncate">
+                                {op.fullName}
+                              </h4>
+                              <p className="text-[10px] font-bold text-neutral-500 flex items-center gap-1.5 mt-0.5">
+                                <span>Barcha satrlar: <strong className="text-neutral-800 dark:text-neutral-300 font-mono font-bold">{op.total} ta</strong></span>
+                                <span className="text-neutral-300 dark:text-neutral-800">|</span>
+                                <span>Bog'lanildi: <strong className="text-neutral-800 dark:text-neutral-300 font-mono font-bold">{op.processed} ta</strong></span>
+                              </p>
+                            </div>
+                          </div>
 
-          {leaderboard.length === 0 ? (
-            <p className="text-center text-sm text-neutral-500 dark:text-neutral-400 py-10">Hali ma'lumot kiritilmagan</p>
-          ) : (
-            <div className="space-y-3">
-              {leaderboard.map((op, i) => {
-                const m = medal(i);
-                return (
-                  <div key={op.fullName} className={`flex items-center gap-4 p-3 rounded-xl ring-1 ${m.bg} ${m.ring} transition-all hover:scale-[1.01]`}>
-                    {/* Rank */}
-                    <div className={`text-xl font-black w-8 text-center shrink-0 ${m.cls}`}>
-                      {m.icon}
-                    </div>
-                    {/* Name */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{op.fullName}</p>
-                      <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
-                        {op.processed} ta bajarildi / {op.total} ta jami
-                      </p>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="w-36 shrink-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-neutral-700 dark:text-neutral-200">{op.percent}%</span>
-                        <div className="flex gap-0.5">
-                          {[0, 1, 2, 3, 4].map(star => (
-                            <Star
-                              key={star}
-                              size={9}
-                              className={star < Math.floor(op.percent / 20) ? 'text-yellow-400 fill-yellow-400' : 'text-neutral-300 dark:text-neutral-600'}
-                            />
-                          ))}
+                          <span className={`text-[10px] px-2.5 py-1 font-extrabold tracking-wide rounded-lg border ${badge.style}`}>
+                            {badge.text}
+                          </span>
+                        </div>
+
+                        {/* Visual statistics grid - fully outline, transparent back */}
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="border border-emerald-500/20 py-2.5 rounded-xl">
+                            <span className="text-[10px] font-bold text-neutral-450 dark:text-neutral-500 block mb-0.5">Shartnoma</span>
+                            <span className="text-sm font-black text-emerald-500 font-mono">{shartnomalar} ta</span>
+                          </div>
+                          
+                          <div className="border border-indigo-500/20 py-2.5 rounded-xl">
+                            <span className="text-[10px] font-bold text-neutral-450 dark:text-neutral-500 block mb-0.5">O'qiydi</span>
+                            <span className="text-sm font-black text-indigo-500 font-mono">{op["O'qiydi"]} ta</span>
+                          </div>
+
+                          <div className="border border-yellow-500/20 py-2.5 rounded-xl">
+                            <span className="text-[10px] font-bold text-neutral-450 dark:text-neutral-500 block mb-0.5">O'ylab ko'radi</span>
+                            <span className="text-sm font-black text-yellow-500 font-mono">{op["O'ylab ko'radi"]} ta</span>
+                          </div>
                         </div>
                       </div>
-                      <div className="h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-700 ${
-                            op.percent >= 80 ? 'bg-emerald-500' :
-                            op.percent >= 50 ? 'bg-sky-500' :
-                            op.percent >= 30 ? 'bg-orange-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${op.percent}%` }}
-                        />
+
+                      {/* Visual progress bar matching modern outline style */}
+                      <div className="space-y-1.5 mt-4">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-neutral-505 dark:text-neutral-450 font-bold flex items-center gap-1">
+                            <Activity className="w-3 h-3 text-neutral-400" /> General Progress
+                          </span>
+                          <span className="font-extrabold text-neutral-805 dark:text-neutral-200 font-mono">{processingPerc}%</span>
+                        </div>
+                        
+                        <div className="h-2.5 bg-neutral-100 dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${processingPerc}%` }}
+                            transition={{ duration: 0.6, ease: 'easeOut' }}
+                            className={`h-full rounded-full ${
+                              processingPerc >= 80 
+                                ? 'bg-emerald-500' 
+                                : processingPerc >= 50 
+                                ? 'bg-indigo-500' 
+                                : 'bg-amber-500'
+                            }`}
+                          />
+                        </div>
                       </div>
-                    </div>
-                    {/* Bajarildi count */}
-                    <div className="text-right shrink-0">
-                      <p className="text-lg font-black text-emerald-600 dark:text-emerald-400">{op.processed}</p>
-                      <p className="text-[9px] text-neutral-500 dark:text-neutral-400">bajarildi</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 };
