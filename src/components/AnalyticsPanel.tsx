@@ -37,6 +37,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     const maslahatQiladi = records.filter(r => r.natija === "Maslahat qiladi").length;
     const xatoRaqam = records.filter(r => r.natija === "Xato raqam").length;
     const kerakEmas = records.filter(r => r.natija === "Kerak emas").length;
+    const oqiydi = records.filter(r => r.natija === "O'qiydi").length;
     const kutilmoqda = records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
     const processed = records.length - kutilmoqda;
     const percent = records.length > 0 ? Math.round((processed / records.length) * 100) : 0;
@@ -48,7 +49,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
       name: displayName, fullName: op.name,
       "Ko'tarmadi": kotarmadi, "O'chirilgan": ochirilgan,
       "O'ylab ko'radi": oylabKoradi, "Maslahat qiladi": maslahatQiladi,
-      "Xato raqam": xatoRaqam, "Kerak emas": kerakEmas, "Kutilmoqda": kutilmoqda,
+      "Xato raqam": xatoRaqam, "Kerak emas": kerakEmas, "O'qiydi": oqiydi, "Kutilmoqda": kutilmoqda,
       total: records.length, processed, percent
     };
   });
@@ -65,6 +66,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     maslahatQiladi: number; 
     xatoRaqam: number; 
     kerakEmas: number;
+    oqiydi: number;
     kutilmoqda: number;
   }> = {};
   
@@ -80,6 +82,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
           maslahatQiladi: 0, 
           xatoRaqam: 0, 
           kerakEmas: 0, 
+          oqiydi: 0,
           kutilmoqda: 0 
         };
       }
@@ -90,6 +93,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
       else if (rec.natija === "Maslahat qiladi") viloyatDataMap[viloyat].maslahatQiladi++;
       else if (rec.natija === "Xato raqam") viloyatDataMap[viloyat].xatoRaqam++;
       else if (rec.natija === "Kerak emas") viloyatDataMap[viloyat].kerakEmas++;
+      else if (rec.natija === "O'qiydi") viloyatDataMap[viloyat].oqiydi++;
       else viloyatDataMap[viloyat].kutilmoqda++;
     });
   });
@@ -98,12 +102,12 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     name: viloyat,
     "Ko'tarmadi": s.kotarmadi, "O'chirilgan": s.ochirilgan,
     "O'ylab ko'radi": s.oylabKoradi, "Maslahat qiladi": s.maslahatQiladi,
-    "Xato raqam": s.xatoRaqam, "Kerak emas": s.kerakEmas, "Kutilmoqda": s.kutilmoqda,
+    "Xato raqam": s.xatoRaqam, "Kerak emas": s.kerakEmas, "O'qiydi": s.oqiydi, "Kutilmoqda": s.kutilmoqda,
     total: s.total
   })).sort((a, b) => b.total - a.total).slice(0, 15);
 
   // ── Global totals ───────────────────────────────────────────────
-  let totalCalls = 0, totalKotarmadi = 0, totalOchirilgan = 0, totalOylabKoradi = 0, totalMaslahatQiladi = 0, totalXatoRaqam = 0, totalKerakEmas = 0;
+  let totalCalls = 0, totalKotarmadi = 0, totalOchirilgan = 0, totalOylabKoradi = 0, totalMaslahatQiladi = 0, totalXatoRaqam = 0, totalKerakEmas = 0, totalOqiydi = 0;
   operators.forEach(op => {
     const r = op.records || [];
     totalCalls += r.length;
@@ -113,8 +117,9 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     totalMaslahatQiladi += r.filter(x => x.natija === "Maslahat qiladi").length;
     totalXatoRaqam += r.filter(x => x.natija === "Xato raqam").length;
     totalKerakEmas += r.filter(x => x.natija === "Kerak emas").length;
+    totalOqiydi += r.filter(x => x.natija === "O'qiydi").length;
   });
-  const totalKutilmoqda = totalCalls - (totalKotarmadi + totalOchirilgan + totalOylabKoradi + totalMaslahatQiladi + totalXatoRaqam + totalKerakEmas);
+  const totalKutilmoqda = totalCalls - (totalKotarmadi + totalOchirilgan + totalOylabKoradi + totalMaslahatQiladi + totalXatoRaqam + totalKerakEmas + totalOqiydi);
   const totalProcessed = totalCalls - totalKutilmoqda;
   const overallPct = totalCalls > 0 ? Math.round((totalProcessed / totalCalls) * 100) : 0;
 
@@ -125,6 +130,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     { name: "Maslahat qiladi", value: totalMaslahatQiladi, color: '#0ea5e9' },
     { name: "Xato raqam", value: totalXatoRaqam, color: '#f43f5e' },
     { name: "Kerak emas", value: totalKerakEmas, color: '#ef4444' },
+    { name: "O'qiydi", value: totalOqiydi, color: '#6366f1' },
     { name: "Kutilmoqda", value: totalKutilmoqda, color: '#a3a3a3' },
   ].filter(d => d.value > 0);
 
@@ -200,6 +206,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
                     <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
                     <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
                     <Bar dataKey="Kerak emas" stackId="a" fill="#ef4444" />
+                    <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
                     <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -262,6 +269,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
                   <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
                   <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
                   <Bar dataKey="Kerak emas" stackId="a" fill="#ef4444" />
+                  <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
                   <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>

@@ -24,6 +24,7 @@ const RESULT_OPTIONS = [
   { value: "Maslahat qiladi", label: "👥 Maslahat qiladi", color: 'bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300' },
   { value: "Xato raqam", label: "❌ Xato raqam", color: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
   { value: "Kerak emas", label: "🚫 Kerak emas", color: 'bg-rose-200 text-red-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
+  { value: "O'qiydi", label: "🎓 O'qiydi", color: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300' },
   { value: '', label: '⏳ Kutilmoqda', color: 'bg-neutral-100 text-neutral-600 border-neutral-300 dark:bg-neutral-800 dark:text-neutral-400' }
 ];
 
@@ -382,6 +383,9 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                 } else if (record.natija === "O'chirilgan") {
                   rowBgClass = "bg-neutral-100/50 hover:bg-neutral-150 dark:bg-neutral-900/10 dark:hover:bg-neutral-850/20";
                   inputTxtClass = "text-neutral-500 dark:text-neutral-400 font-semibold";
+                } else if (record.natija === "O'qiydi") {
+                  rowBgClass = "bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30";
+                  inputTxtClass = "text-indigo-900 dark:text-indigo-300 font-semibold";
                 } else {
                   // Default striped / clean background
                   rowBgClass = index % 2 === 1 
@@ -507,6 +511,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                         <option value="Maslahat qiladi">👥 Maslahat qiladi</option>
                         <option value="Xato raqam">❌ Xato raqam</option>
                         <option value="Kerak emas">🚫 Kerak emas</option>
+                        <option value="O'qiydi">🎓 O'qiydi</option>
                       </select>
                     </td>
 

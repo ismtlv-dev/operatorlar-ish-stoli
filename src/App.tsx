@@ -947,7 +947,7 @@ export default function App() {
       ...op,
       records: op.records.map(rec => ({
         ...rec,
-        natija: '', // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "Kerak emas" | ""
+        natija: '', // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "Kerak emas" | "O'qiydi" | ""
         izoh: ''
       }))
     }));
@@ -1728,6 +1728,7 @@ export default function App() {
                     const maslahatQiladi = op.records.filter(r => r.natija === "Maslahat qiladi").length;
                     const xatoRaqam = op.records.filter(r => r.natija === "Xato raqam").length;
                     const kerakEmas = op.records.filter(r => r.natija === "Kerak emas").length;
+                    const oqiydi = op.records.filter(r => r.natija === "O'qiydi").length;
                     const kutilmoqda = op.records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
                     const processed = total - kutilmoqda;
                     const progressPerc = total ? Math.round((processed / total) * 100) : 0;
@@ -1744,7 +1745,7 @@ export default function App() {
                           <div className="bg-emerald-500 h-full" style={{ width: `${progressPerc}%` }}></div>
                         </div>
 
-                        <div className="grid grid-cols-7 gap-0.5 text-[8px] font-semibold text-center mt-2.5">
+                        <div className="grid grid-cols-8 gap-0.5 text-[8px] font-semibold text-center mt-2.5">
                           <div className="bg-orange-50 dark:bg-orange-950/25 p-1 rounded font-mono text-orange-700 dark:text-orange-400" title="Ko'tarmadi">
                             {kotarmadi}📞
                           </div>
@@ -1762,6 +1763,9 @@ export default function App() {
                           </div>
                           <div className="bg-red-50 dark:bg-red-950/25 p-1 rounded font-mono text-red-700 dark:text-red-400" title="Kerak emas">
                             {kerakEmas}🚫
+                          </div>
+                          <div className="bg-indigo-50 dark:bg-indigo-950/25 p-1 rounded font-mono text-indigo-700 dark:text-indigo-400" title="O'qiydi">
+                            {oqiydi}🎓
                           </div>
                           <div className="bg-stone-100 dark:bg-neutral-800 p-1 rounded font-mono text-neutral-500 dark:text-neutral-500" title="Kutilmoqda">
                             {kutilmoqda}⏳
@@ -1798,6 +1802,7 @@ export default function App() {
                           { name: "Maslahat qiladi 👥", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Maslahat qiladi").length, 0), fill: '#0ea5e9' },
                           { name: "Xato raqam ❌", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Xato raqam").length, 0), fill: '#f43f5e' },
                           { name: "Kerak emas 🚫", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Kerak emas").length, 0), fill: '#ef4444' },
+                          { name: "O'qiydi 🎓", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'qiydi").length, 0), fill: '#6366f1' },
                           { name: "Kutilmoqda ⏳", soni: operators.reduce((acc, op) => acc + op.records.filter(r => !r.natija || r.natija === '' || r.natija === 'Kutilmoqda').length, 0), fill: '#a3a3a3' }
                         ]} 
                         margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
