@@ -6,8 +6,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { db, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, setDoc, onSnapshot, writeBatch, deleteDoc, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
+import { collection, writeBatch, getDocs } from 'firebase/firestore';
 import { initialOperators } from './data';
 import { Operator, SchoolRecord, EditLog } from './types';
 import { Stats } from './components/Stats';
@@ -256,100 +256,92 @@ export default function App() {
     };
   }, []);
 
-  // Real-time Firestore synchronization & initialization
-  useEffect(() => {
-    const unsubscribeOperators = onSnapshot(collection(db, 'operators'), (snapshot) => {
-      if (snapshot.empty) {
-        // Firestore bo'sh - localStorage backup bor bo'lsa undan yukla
-        const backup = localStorage.getItem('school_operators_data_backup');
-        if (backup) {
-          try {
-            const backupOps = JSON.parse(backup) as Operator[];
-            if (backupOps && backupOps.length > 0) {
-              console.log("Firestore bo'sh, localStorage backup dan yuklanmoqda:", backupOps.length, "operator");
-              setOperators(backupOps);
-              return;
-            }
-          } catch(e) { /* ignore parse errors */ }
-        }
-        console.log("Firestore empty, seeding with initial operators dataset...");
-        initialOperators.forEach((op, idx) => {
-          const docRef = doc(db, 'operators', op.id);
-          setDoc(docRef, { ...op, order: idx }).catch(err => {
-            console.error("Firestore seeding failed for: ", op.id, err);
-          });
-        });
-      } else {
-        const loadedOps: Operator[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          loadedOps.push({
-            ...data,
-            id: docSnap.id,
-            name: data.name || 'Noma\'lum operator',
-            password: data.password || '123456',
-            order: data.order ?? 999,
-            records: data.records || []
-          } as Operator);
-        });
-        // Sort operators by their Display Order / id value
-        loadedOps.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-        // Firestore dan kelgan ma'lumotni localStorage backup bilan solishtir
-        // Agar backup yangroq bo'lsa (ko'proq ishlangan yozuvlar bo'lsa), uni ishlat
-        const backup = localStorage.getItem('school_operators_data_backup');
-        if (backup) {
-          try {
-            const backupOps = JSON.parse(backup) as Operator[];
-            const firestoreTouched = loadedOps.reduce((s, op) => s + op.records.filter(r => r.natija || r.izoh).length, 0);
-            const backupTouched = backupOps.reduce((s, op) => s + op.records.filter(r => r.natija || r.izoh).length, 0);
-            if (backupTouched > firestoreTouched) {
-              console.log(`LocalStorage backup (${backupTouched} ishlangan) Firestore dan (${firestoreTouched} ishlangan) yangroq - backup ishlatilmoqda`);
-              setOperators(backupOps);
-            } else {
-              setOperators(loadedOps);
-              // Firestore ma'lumotini backup sifatida yangilab qo'y
-              localStorage.setItem('school_operators_data_backup', JSON.stringify(loadedOps));
-            }
-          } catch(e) {
-            setOperators(loadedOps);
-          }
-        } else {
-          setOperators(loadedOps);
-          localStorage.setItem('school_operators_data_backup', JSON.stringify(loadedOps));
-        }
-      }
-    }, (error) => {
-      console.error("Error fetching operators from cloud:", error);
-      // Firestore o'qishda xato - localStorage backup dan yukla
-      const backup = localStorage.getItem('school_operators_data_backup');
-      if (backup) {
-        try {
-          const backupOps = JSON.parse(backup) as Operator[];
-          if (backupOps && backupOps.length > 0) {
-            console.log("Firestore xato, localStorage backup dan yuklanmoqda");
-            setOperators(backupOps);
-          }
-        } catch(e) { /* ignore */ }
-      }
-    });
+  // ===== LOKAL XOTIRA (localStorage) — ASOSIY MANBA =====
+  // Firestore faqat bir martalik import uchun ishlatiladi (lokal bo'sh bo'lsa).
+  const LS_DATA_KEY = 'school_operators_data_backup';
+  const LS_LOGS_KEY = 'school_operators_logs';
 
-    const unsubscribeLogs = onSnapshot(collection(db, 'activityLogs'), (snapshot) => {
-      let loadedLogs: EditLog[] = [];
+  const ensureRecordDates = (records: SchoolRecord[]): SchoolRecord[] => {
+    return (records || []).map(r => {
+      if ((r.natija || r.izoh) && !r.sana) {
+        return { ...r, sana: '11.06.2026' }; // Boshlang'ich sana
+      }
+      return r;
+    });
+  };
+
+  const loadLocalOperators = (): Operator[] | null => {
+    try {
+      const raw = localStorage.getItem(LS_DATA_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Operator[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      return parsed.map(op => ({
+        ...op,
+        name: op.name || 'Noma\'lum operator',
+        password: op.password || '123456',
+        records: ensureRecordDates(op.records || [])
+      }));
+    } catch (e) {
+      console.warn('localStorage o\'qishda xato:', e);
+      return null;
+    }
+  };
+
+  // Firestore'dan bir martalik import (onSnapshot emas — faqat getDocs)
+  const importFromFirestore = async (): Promise<Operator[] | null> => {
+    try {
+      const snapshot = await getDocs(collection(db, 'operators'));
+      if (snapshot.empty) return null;
+      const loadedOps: Operator[] = [];
       snapshot.forEach((docSnap) => {
-        loadedLogs.push(docSnap.data() as EditLog);
+        const data = docSnap.data();
+        loadedOps.push({
+          ...data,
+          id: docSnap.id,
+          name: data.name || 'Noma\'lum operator',
+          password: data.password || '123456',
+          order: data.order ?? 999,
+          records: ensureRecordDates(data.records || [])
+        } as Operator);
       });
-      // Sort newer logs first
-      loadedLogs.sort((a, b) => b.id.localeCompare(a.id));
-      const slicedLogs = loadedLogs.slice(0, 500);
-      setActivityLogs(slicedLogs);
-    }, (error) => {
-      console.error("Error fetching activity logs from cloud:", error);
-    });
+      loadedOps.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+      return loadedOps;
+    } catch (err) {
+      console.warn("Firestore'dan import bo'lmadi (offline yoki ruxsat yo'q):", err);
+      return null;
+    }
+  };
 
-    return () => {
-      unsubscribeOperators();
-      unsubscribeLogs();
-    };
+  // Dastlabki yuklash tartibi: localStorage -> Firestore (bir marta) -> initialOperators
+  useEffect(() => {
+    let cancelled = false;
+
+    const localOps = loadLocalOperators();
+    if (localOps) {
+      setOperators(localOps);
+    } else {
+      importFromFirestore().then(remoteOps => {
+        if (cancelled) return;
+        const ops = remoteOps || initialOperators;
+        if (remoteOps) {
+          console.log(`Firestore'dan ${remoteOps.length} ta operator import qilindi`);
+        }
+        setOperators(ops);
+        try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(ops)); } catch (e) { /* ignore */ }
+      });
+    }
+
+    // Ish jurnalini localStorage'dan yuklash
+    try {
+      const rawLogs = localStorage.getItem(LS_LOGS_KEY);
+      if (rawLogs) {
+        const parsedLogs = JSON.parse(rawLogs) as EditLog[];
+        if (Array.isArray(parsedLogs)) setActivityLogs(parsedLogs.slice(0, 500));
+      }
+    } catch (e) { /* ignore */ }
+
+    return () => { cancelled = true; };
   }, []);
 
   // Theme effect hook
@@ -427,53 +419,22 @@ export default function App() {
     const missingNewOperators = initialOperators.filter(op => newOpIds.includes(op.id) && !operators.some(o => o.id === op.id));
     
     if (hasOldOperator || missingNewOperators.length > 0 || hasOldPasswords) {
-      console.log("Database out of sync with new operator list/passwords. Running migration...");
-      
-      const runMigration = async () => {
-        // 1. Delete Hoshimova Mahsuma from Firestore
-        if (hasOldOperator) {
-          try {
-            await deleteDoc(doc(db, 'operators', '9'));
-            console.log("Deleted operator Hoshimova Mahsuma (ID 9) from Firestore");
-          } catch (e) {
-            console.error("Failed to delete old operator:", e);
-          }
-        }
-        
-        // 2. Add missing new operators to Firestore
-        for (const op of missingNewOperators) {
-          try {
-            await setDoc(doc(db, 'operators', op.id), {
-              ...op,
-              order: parseInt(op.id) // unique order based on ID
-            });
-            console.log(`Added new operator ${op.name} (ID ${op.id}) to Firestore`);
-          } catch (e) {
-            console.error(`Failed to add operator ${op.name}:`, e);
-          }
-        }
-
-        // 3. Update old operator passwords to 123456
-        if (hasOldPasswords) {
-          for (const op of operators) {
-            if (op.password === '12345') {
-              try {
-                await setDoc(doc(db, 'operators', op.id), {
-                  ...op,
-                  password: '123456'
-                }, { merge: true });
-                console.log(`Updated operator password for ${op.name} (ID ${op.id}) to 123456`);
-              } catch (e) {
-                console.error(`Failed to update operator password for ${op.name}:`, e);
-              }
-            }
-          }
-        }
-      };
-      
-      runMigration();
+      console.log("Operator ro'yxati eskirgan. Lokal migratsiya bajarilmoqda...");
+      const migrated = operators
+        .filter(op => op.id !== '9') // Hoshimova Mahsuma (ID 9) o'chirilgan
+        .map(op => op.password === '12345' ? { ...op, password: '123456' } : op)
+        .concat(missingNewOperators);
+      saveToLocalStorage(migrated);
     }
   }, [operators]);
+
+  // Saqlangan login endi mavjud bo'lmagan operatorga tegishli bo'lsa - chiqarib yuborish
+  useEffect(() => {
+    if (operators.length > 0 && loggedInOpId && !operators.some(op => op.id === loggedInOpId)) {
+      setLoggedInOpId(null);
+      localStorage.removeItem('school_operators_current_op');
+    }
+  }, [operators, loggedInOpId]);
 
   // Logged-in operator (not admin) is locked to their own sheet
   useEffect(() => {
@@ -510,19 +471,12 @@ export default function App() {
     return updatedLogs;
   };
 
-  // Sync / write changes to Firestore and state
-  const saveToLocalStorage = async (updated: Operator[], newLogs?: EditLog[]) => {
-    // 1. Instantly update React state for zero-latency UI interaction
+  // O'zgarishlarni saqlash — localStorage asosiy xotira
+  const saveToLocalStorage = (updated: Operator[], newLogs?: EditLog[]) => {
+    // 1. Avval React state — UI darhol yangilanadi
     setOperators(updated);
     if (newLogs) {
       setActivityLogs(newLogs);
-    }
-
-    // 2. ZAXIRA: localStorage ga darhol saqlash (Firestore ishlamasa ham saqlanadi)
-    try {
-      localStorage.setItem('school_operators_data_backup', JSON.stringify(updated));
-    } catch(lsErr) {
-      console.warn('localStorage backup xato:', lsErr);
     }
 
     setSavingState('saving');
@@ -530,56 +484,22 @@ export default function App() {
       clearTimeout(savingTimeoutRef.current);
     }
 
+    // 2. localStorage'ga yozish
     try {
-      const batch = writeBatch(db);
-
-      // Save all updated operators to Firestore
-      updated.forEach((op, idx) => {
-        const docRef = doc(db, 'operators', op.id);
-        // Include display order
-        batch.set(docRef, { ...op, order: idx });
-      });
-
-      // Save any newly added logs to Firestore if provided
-      if (newLogs && newLogs.length > 0) {
-        newLogs.slice(0, 15).forEach(log => {
-          const logRef = doc(db, 'activityLogs', log.id);
-          batch.set(logRef, log);
-        });
+      localStorage.setItem(LS_DATA_KEY, JSON.stringify(updated));
+      if (newLogs) {
+        localStorage.setItem(LS_LOGS_KEY, JSON.stringify(newLogs.slice(0, 500)));
       }
-
-      await batch.commit();
-
       savingTimeoutRef.current = setTimeout(() => {
         setSavingState('saved');
         savingTimeoutRef.current = setTimeout(() => {
           setSavingState('idle');
         }, 1500);
-      }, 800);
-
-    } catch (err: any) {
-      console.error("Failed to commit changes to Firestore collection:", err);
-      // Firestore ishlamasa ham - localStorage backup ga saqlangan, xavfsiz
-      savingTimeoutRef.current = setTimeout(() => {
-        setSavingState('saved');
-        savingTimeoutRef.current = setTimeout(() => {
-          setSavingState('idle');
-        }, 1500);
-      }, 500);
-      // Background da qayta urinish (30 soniyadan keyin)
-      setTimeout(async () => {
-        try {
-          const retryBatch = writeBatch(db);
-          updated.forEach((op, idx) => {
-            const docRef = doc(db, 'operators', op.id);
-            retryBatch.set(docRef, { ...op, order: idx });
-          });
-          await retryBatch.commit();
-          console.log('Firestore qayta urinish muvaffaqiyatli!');
-        } catch(retryErr) {
-          console.warn('Firestore qayta urinish ham xato - localStorage backup saqlanmoqda');
-        }
-      }, 30000);
+      }, 400);
+    } catch (err) {
+      console.error('localStorage saqlashda xato:', err);
+      setSavingState('idle');
+      triggerNotification("Saqlashda xatolik! Brauzer xotirasi to'lgan bo'lishi mumkin ⚠️");
     }
   };
 
@@ -604,7 +524,24 @@ export default function App() {
       if (r.id === recordId) {
         oldVal = String(r[field] ?? '');
         schoolN = r.fish;
-        return { ...r, [field]: value } as any;
+        const updatedRec = { ...r, [field]: value } as any;
+
+        // Natija yoki izoh o'zgarganda, sanani o'rnatish
+        if (field === 'natija' || field === 'izoh') {
+          if (!updatedRec.natija && !updatedRec.izoh) {
+            updatedRec.sana = '';
+          } else {
+            const now = new Date();
+            const formatterDate = new Intl.DateTimeFormat('uz-UZ', {
+              timeZone: 'Asia/Tashkent',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric'
+            });
+            updatedRec.sana = formatterDate.format(now);
+          }
+        }
+        return updatedRec;
       }
       return r;
     });
@@ -632,10 +569,10 @@ export default function App() {
       saveToLocalStorage(updatedOperators, freshLogs);
       triggerNotification("Ma'lumotlar saqlandi! 💾");
 
-      // Telegram sending asynchronously
+      // Telegram sending asynchronously (yangilangan yozuvdan o'qiladi)
       const lastCreatedLog = freshLogs[0];
       if (lastCreatedLog) {
-        const targetRec = targetOp.records.find(r => r.id === recordId);
+        const targetRec = updatedRecords.find(r => r.id === recordId);
         const schoolNo = targetRec ? targetRec.no : 0;
         const schoolTel = targetRec ? targetRec.tel : '';
         const schoolViloyat = targetRec ? targetRec.viloyat : '';
@@ -726,7 +663,23 @@ export default function App() {
     triggerNotification(`${newRecords.length} ta mijoz muvaffaqiyatli yuklandi!`);
   };
 
-  // Reset database state in Firestore / LocalStorage
+  // Firestore'dan qo'lda import (lokal ma'lumotlar o'rniga yuklaydi)
+  const handleImportFromFirestore = async () => {
+    if (!window.confirm("Firestore'dagi ma'lumotlar hozirgi LOKAL ma'lumotlar O'RNIGA yuklanadi. Lokal kiritilgan natijalar yo'qolishi mumkin. Davom etasizmi?")) {
+      return;
+    }
+    setSavingState('saving');
+    const remoteOps = await importFromFirestore();
+    if (remoteOps) {
+      saveToLocalStorage(remoteOps);
+      triggerNotification(`Firestore'dan ${remoteOps.length} ta operator import qilindi! ☁️`);
+    } else {
+      setSavingState('idle');
+      alert("Firestore'dan ma'lumot olib bo'lmadi (baza bo'sh yoki ulanish xatosi). Lokal ma'lumotlar o'zgarmadi.");
+    }
+  };
+
+  // Reset database state in LocalStorage
   const handleResetDatabase = async () => {
     if (window.confirm("Barcha kiritilgan o'zgarishlar o'chib ketadi va boshlang'ich operator ma'lumotlari holatiga qaytariladi. Tasdiqlaysizmi?")) {
       saveToLocalStorage(initialOperators, []);
@@ -752,10 +705,6 @@ export default function App() {
 
     if (window.confirm(`Haqiqatan ham "${op.name}" operatorini jadvallari va barcha ${op.records.length} ta maktab ma'lumotlari bilan birga butunlay o'chirib tashlamoqchimisiz? Ushbu amal ortga qaytarilmaydi!`)) {
       const updated = operators.filter(o => o.id !== opId);
-      // Delete from Firestore directly
-      deleteDoc(doc(db, 'operators', opId)).catch(err => {
-        console.error("Failed to delete operator doc from cloud:", err);
-      });
       saveToLocalStorage(updated);
       if (selectedOpId === opId) {
         setSelectedOpId(updated[0].id);
@@ -1280,9 +1229,6 @@ export default function App() {
     });
 
     const logMsg = `Fayl/Matn importi joriy etildi: Jami yuklangan ${incomingSchools.length} tadan unikal ${uniqueIncoming.length} ta mijoz uchun operator jadvallari 40 tadan to'ldirildi.`;
-    
-    // Save to local storage and Firestore first to assure responsive feedback
-    saveToLocalStorage(finalOperators);
 
     const freshLogs = logActivityLocal('ADMIN', 'Tizim Ma\'muri', 'Barcha operatorlar', 'Smart Import', '', logMsg);
     saveToLocalStorage(finalOperators, freshLogs);
@@ -1571,7 +1517,7 @@ export default function App() {
                   OPERATORLAR ISH STOLI 📊
                 </h1>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  10 ta faol operator, doimiy 40 talik jadvallar boshqaruvi
+                  {operators.length} ta faol operator, doimiy 40 talik jadvallar boshqaruvi
                 </p>
               </div>
             </div>
@@ -2069,6 +2015,22 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
                   </form>
                 </div>
 
+                {/* 1.5 Firestore Import Section */}
+                <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
+                  <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    ☁️ Firestore'dan Import Qilish
+                  </h3>
+                  <p className="text-neutral-500 mb-3 font-semibold leading-relaxed">
+                    Tizim hozir barcha ma'lumotlarni brauzer xotirasida (localStorage) saqlaydi. Ushbu tugma Firestore bulutidagi operatorlar bazasini bir martalik yuklab, lokal bazani almashtiradi.
+                  </p>
+                  <button
+                    onClick={handleImportFromFirestore}
+                    className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-md text-xs transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                  >
+                    ☁️ Firestore'dan Yuklash
+                  </button>
+                </div>
+
                 {/* 2. Bulk Date Changer Section */}
                 <div className="p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-xs">
                   <h3 className="text-xs font-bold text-neutral-850 dark:text-neutral-100 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -2493,7 +2455,7 @@ Samarqand	12-maktab	Aliyev Q.	998911234567"
             <div className="shrink-0 flex items-center gap-3">
               <div className="text-right">
                 <p className="text-xs text-neutral-400 font-medium">Faol kadrlar</p>
-                <p className="text-sm font-bold text-neutral-700 dark:text-neutral-200">10 nafar operator</p>
+                <p className="text-sm font-bold text-neutral-700 dark:text-neutral-200">{operators.length} nafar operator</p>
               </div>
               <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-full">
                 <UserCheck size={18} className="text-emerald-600" />

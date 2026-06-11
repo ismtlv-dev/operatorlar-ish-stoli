@@ -51,10 +51,13 @@ export const LiveChat: React.FC<LiveChatProps> = ({ operatorId, operatorName, is
 
   // Firestore real-time listener
   useEffect(() => {
-    const q = query(collection(db, 'messages'), orderBy('timestamp', 'asc'), limit(120));
+    // 'id' Date.now() bilan boshlanadi - xronologik tartib beradi.
+    // desc + limit(120): eng OXIRGI 120 ta xabar olinadi, keyin eskidan-yangiga ag'dariladi.
+    const q = query(collection(db, 'messages'), orderBy('id', 'desc'), limit(120));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const loaded: ChatMessage[] = [];
       snapshot.forEach(d => loaded.push(d.data() as ChatMessage));
+      loaded.reverse();
       setMessages(loaded);
 
       if (hasInitializedRef.current) {

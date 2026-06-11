@@ -37,11 +37,12 @@ const highlightText = (text: string, search: string) => {
   const cleanSearch = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
   const regex = new RegExp(`(${cleanSearch})`, 'gi');
   const parts = text.split(regex);
-  
+
+  // split() capture-guruh bilan: toq indekslar - mos tushgan bo'laklar
   return (
     <>
-      {parts.map((part, i) => 
-        regex.test(part) ? (
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
           <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 text-neutral-900 dark:text-neutral-50 px-0.5 rounded font-bold">
             {part}
           </mark>
@@ -64,6 +65,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [viloyatFilter, setViloyatFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sanaFilter, setSanaFilter] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   // Sorting setup
@@ -91,6 +93,16 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
   // Extract unique regions (Viloyat) for filtering
   const allViloyats = Array.from(new Set(records.map(r => r.viloyat).filter(Boolean)));
 
+  // Extract unique dates for history filter
+  const allSanas = Array.from(new Set(records.map(r => r.sana).filter(Boolean))) as string[];
+  allSanas.sort((a, b) => {
+    const [dayA, monthA, yearA] = a.split('.').map(Number);
+    const [dayB, monthB, yearB] = b.split('.').map(Number);
+    const timeA = new Date(yearA, monthA - 1, dayA).getTime();
+    const timeB = new Date(yearB, monthB - 1, dayB).getTime();
+    return timeB - timeA;
+  });
+
   // Combine search string
   const activeSearch = searchTerm.trim() || highlightTerm.trim();
 
@@ -105,13 +117,14 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
       (record.tugulganSana || '').includes(activeSearch);
 
     const matchesViloyat = !viloyatFilter || record.viloyat === viloyatFilter;
+    const matchesSana = !sanaFilter || record.sana === sanaFilter;
     
     let matchesStatus = true;
     if (statusFilter !== 'all') {
       matchesStatus = record.natija === statusFilter;
     }
 
-    return matchesSearch && matchesViloyat && matchesStatus;
+    return matchesSearch && matchesViloyat && matchesSana && matchesStatus;
   });
 
   // Sort records
@@ -169,6 +182,22 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
     }
   };
 
+  // Calculate summary stats for the selected date
+  const selectedDateRecords = records.filter(r => r.sana === sanaFilter);
+  const totalCallsOnDate = selectedDateRecords.length;
+  
+  const statsOnDate = {
+    kotarmadi: selectedDateRecords.filter(r => r.natija === "Ko'tarmadi").length,
+    ochirilgan: selectedDateRecords.filter(r => r.natija === "O'chirilgan").length,
+    oylabKoradi: selectedDateRecords.filter(r => r.natija === "O'ylab ko'radi").length,
+    maslahatQiladi: selectedDateRecords.filter(r => r.natija === "Maslahat qiladi").length,
+    xatoRaqam: selectedDateRecords.filter(r => r.natija === "Xato raqam").length,
+    oqimaydi: selectedDateRecords.filter(r => r.natija === "O'qimaydi").length,
+    oqiydi: selectedDateRecords.filter(r => r.natija === "O'qiydi").length,
+    shartnomaBerildi: selectedDateRecords.filter(r => r.natija === "Shartnoma berildi").length,
+    kutilmoqda: selectedDateRecords.filter(r => r.natija === "").length,
+  };
+
   return (
     <div className="bg-white dark:bg-neutral-950 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-xs overflow-hidden">
       
@@ -209,6 +238,18 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+
+          {/* Sana (Tarix) filter dropdown */}
+          <select
+            className="text-sm bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 px-3 py-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 focus:outline-none"
+            value={sanaFilter}
+            onChange={(e) => setSanaFilter(e.target.value)}
+          >
+            <option value="">Barcha sanalar (Tarix)</option>
+            {allSanas.map(sana => (
+              <option key={sana} value={sana}>📅 {sana}</option>
+            ))}
+          </select>
         </div>
 
         {/* Add Record Button */}
@@ -222,6 +263,25 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
           </button>
         )}
       </div>
+
+      {/* Date History Stats Panel */}
+      {sanaFilter && (
+        <div className="px-4 py-3 bg-neutral-100/70 dark:bg-neutral-900/40 border-b border-neutral-200 dark:border-neutral-800 flex flex-wrap gap-2 items-center text-xs">
+          <span className="font-bold text-neutral-700 dark:text-neutral-300">
+            📅 {sanaFilter} tarixidagi qo'ngiroqlar jami: <span className="text-emerald-650 dark:text-emerald-400 font-extrabold text-sm">{totalCallsOnDate} ta</span>
+          </span>
+          <div className="flex flex-wrap gap-1.5 ml-2">
+            {statsOnDate.kotarmadi > 0 && <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300">📞 {statsOnDate.kotarmadi}</span>}
+            {statsOnDate.ochirilgan > 0 && <span className="px-2 py-0.5 rounded bg-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-300">📴 {statsOnDate.ochirilgan}</span>}
+            {statsOnDate.oylabKoradi > 0 && <span className="px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300">🤔 {statsOnDate.oylabKoradi}</span>}
+            {statsOnDate.maslahatQiladi > 0 && <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-850 dark:bg-sky-950/40 dark:text-sky-300">👥 {statsOnDate.maslahatQiladi}</span>}
+            {statsOnDate.xatoRaqam > 0 && <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300">❌ {statsOnDate.xatoRaqam}</span>}
+            {statsOnDate.oqimaydi > 0 && <span className="px-2 py-0.5 rounded bg-rose-200 text-red-800 dark:bg-rose-950/40 dark:text-rose-300">🚫 {statsOnDate.oqimaydi}</span>}
+            {statsOnDate.oqiydi > 0 && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-805 dark:bg-indigo-950/40 dark:text-indigo-300">🎓 {statsOnDate.oqiydi}</span>}
+            {statsOnDate.shartnomaBerildi > 0 && <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-805 dark:bg-emerald-950/40 dark:text-emerald-300">📄 {statsOnDate.shartnomaBerildi}</span>}
+          </div>
+        </div>
+      )}
 
       {/* Add Record Form Inline Modal */}
       {showAddForm && (
@@ -362,7 +422,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
             {sortedRecords.length > 0 ? (
               sortedRecords.map((record, index) => {
                 const rowNumber = index + 2; // Rows start at 2 since Row 1 is header
-                const selectedOption = RESULT_OPTIONS.find(o => o.value === record.natija) || RESULT_OPTIONS[5];
+                const selectedOption = RESULT_OPTIONS.find(o => o.value === record.natija) || RESULT_OPTIONS[RESULT_OPTIONS.length - 1];
 
                 // Dynamically get spreadsheet row bg based on status
                 let rowBgClass = "";

@@ -13,6 +13,7 @@ export interface SchoolRecord {
   telQoshimcha: string; // Qo'shimcha telefon
   natija: string;       // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "O'qimaydi" | "O'qiydi" | "Shartnoma berildi" | ""
   izoh: string;         // Izoh
+  sana?: string;        // O'zgartirilgan sana (Tarix filteri uchun)
 }
 
 export interface Operator {
