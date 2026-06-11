@@ -10,7 +10,8 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
-const PORT = 3000;
+
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 const dbUrl = process.env.DATABASE_URL;
 
 if (!dbUrl) {
