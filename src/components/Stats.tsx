@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { SchoolRecord } from '../types';
-import { Phone, AlertTriangle, XCircle, Clock, FileSpreadsheet, BookOpen } from 'lucide-react';
+import { Phone, AlertTriangle, XCircle, Clock, FileSpreadsheet, BookOpen, ClipboardCheck } from 'lucide-react';
 
 interface StatsProps {
   records: SchoolRecord[];
@@ -23,12 +23,13 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
   const xatoRaqam = safeRecords.filter(r => r.natija === "Xato raqam").length;
   const kerakEmas = safeRecords.filter(r => r.natija === "Kerak emas").length;
   const oqiydi = safeRecords.filter(r => r.natija === "O'qiydi").length;
+  const shartnomaBerildi = safeRecords.filter(r => r.natija === "Shartnoma berildi").length;
   const kutilmoqda = safeRecords.filter(r => !r.natija).length;
 
   const processed = total - kutilmoqda;
   const progressPerc = total ? Math.round((processed / total) * 100) : 0;
 
-  const maxVal = Math.max(1, kotarmadi, ochirilgan, oylabKoradi, maslahatQiladi, xatoRaqam, kerakEmas, oqiydi, kutilmoqda);
+  const maxVal = Math.max(1, kotarmadi, ochirilgan, oylabKoradi, maslahatQiladi, xatoRaqam, kerakEmas, oqiydi, shartnomaBerildi, kutilmoqda);
   
   const operatorBars = [
     { label: "Ko'tarmadi", val: kotarmadi, color: 'bg-orange-500', textColor: 'text-orange-500 dark:text-orange-400', emoji: '📞' },
@@ -38,13 +39,14 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
     { label: "Xato raqam", val: xatoRaqam, color: 'bg-rose-500', textColor: 'text-rose-500 dark:text-rose-400', emoji: '❌' },
     { label: "Kerak emas", val: kerakEmas, color: 'bg-red-500', textColor: 'text-red-500 dark:text-red-400', emoji: '🚫' },
     { label: "O'qiydi", val: oqiydi, color: 'bg-indigo-500', textColor: 'text-indigo-500 dark:text-indigo-400', emoji: '🎓' },
+    { label: "Shartnoma berildi", val: shartnomaBerildi, color: 'bg-emerald-500', textColor: 'text-emerald-500 dark:text-emerald-450', emoji: '📄' },
     { label: "Kutilmoqda", val: kutilmoqda, color: 'bg-neutral-300 dark:bg-neutral-600', textColor: 'text-neutral-400 dark:text-neutral-505', emoji: '⏳' }
   ];
 
   return (
     <div className="mb-4">
       {/* Stats Cards Grid - full width now */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-9 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-10 gap-3">
           
           {/* Card 1: Jami mijozlar */}
           <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xs flex flex-col justify-between">
@@ -142,13 +144,25 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
             </div>
           </div>
 
-          {/* Card 9: Kutilmoqda */}
+          {/* Card 9: Shartnoma berildi */}
+          <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-emerald-100 dark:border-emerald-950/30 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-emerald-650 dark:text-emerald-450">Shartnoma berildi</span>
+              <ClipboardCheck size={15} className="text-emerald-500" />
+            </div>
+            <p className="text-xl font-black text-emerald-700 dark:text-emerald-400">{shartnomaBerildi}</p>
+            <div className="w-full bg-neutral-100 dark:bg-neutral-700 h-1 rounded-full mt-2 overflow-hidden">
+              <div className="bg-emerald-500 h-full" style={{ width: `${total ? (shartnomaBerildi / total) * 100 : 0}%` }}></div>
+            </div>
+          </div>
+
+          {/* Card 10: Kutilmoqda */}
           <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Kutilmoqda</span>
               <Phone size={15} className="text-neutral-450" />
             </div>
-            <p className="text-xl font-black text-neutral-600 dark:text-neutral-300">{kutilmoqda}</p>
+            <p className="text-xl font-black text-neutral-600 dark:text-neutral-305">{kutilmoqda}</p>
             <div className="w-full bg-neutral-100 dark:bg-neutral-700 h-1 rounded-full mt-2 overflow-hidden">
               <div className="bg-neutral-400 dark:bg-neutral-500 h-full" style={{ width: `${total ? (kutilmoqda / total) * 100 : 0}%` }}></div>
             </div>
