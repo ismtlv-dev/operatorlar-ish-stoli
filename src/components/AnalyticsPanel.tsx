@@ -36,7 +36,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     const oylabKoradi = records.filter(r => r.natija === "O'ylab ko'radi").length;
     const maslahatQiladi = records.filter(r => r.natija === "Maslahat qiladi").length;
     const xatoRaqam = records.filter(r => r.natija === "Xato raqam").length;
-    const kerakEmas = records.filter(r => r.natija === "Kerak emas").length;
+    const oqimaydi = records.filter(r => r.natija === "O'qimaydi").length;
     const oqiydi = records.filter(r => r.natija === "O'qiydi").length;
     const shartnomaBerildi = records.filter(r => r.natija === "Shartnoma berildi").length;
     const kutilmoqda = records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
@@ -50,7 +50,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
       name: displayName, fullName: op.name,
       "Ko'tarmadi": kotarmadi, "O'chirilgan": ochirilgan,
       "O'ylab ko'radi": oylabKoradi, "Maslahat qiladi": maslahatQiladi,
-      "Xato raqam": xatoRaqam, "Kerak emas": kerakEmas, "O'qiydi": oqiydi, "Shartnoma berildi": shartnomaBerildi, "Kutilmoqda": kutilmoqda,
+      "Xato raqam": xatoRaqam, "O'qimaydi": oqimaydi, "O'qiydi": oqiydi, "Shartnoma berildi": shartnomaBerildi, "Kutilmoqda": kutilmoqda,
       total: records.length, processed, percent
     };
   });
@@ -66,7 +66,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     oylabKoradi: number; 
     maslahatQiladi: number; 
     xatoRaqam: number; 
-    kerakEmas: number;
+    oqimaydi: number;
     oqiydi: number;
     shartnomaBerildi: number;
     kutilmoqda: number;
@@ -83,7 +83,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
           oylabKoradi: 0, 
           maslahatQiladi: 0, 
           xatoRaqam: 0, 
-          kerakEmas: 0, 
+          oqimaydi: 0, 
           oqiydi: 0,
           shartnomaBerildi: 0,
           kutilmoqda: 0 
@@ -95,7 +95,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
       else if (rec.natija === "O'ylab ko'radi") viloyatDataMap[viloyat].oylabKoradi++;
       else if (rec.natija === "Maslahat qiladi") viloyatDataMap[viloyat].maslahatQiladi++;
       else if (rec.natija === "Xato raqam") viloyatDataMap[viloyat].xatoRaqam++;
-      else if (rec.natija === "Kerak emas") viloyatDataMap[viloyat].kerakEmas++;
+      else if (rec.natija === "O'qimaydi") viloyatDataMap[viloyat].oqimaydi++;
       else if (rec.natija === "O'qiydi") viloyatDataMap[viloyat].oqiydi++;
       else if (rec.natija === "Shartnoma berildi") viloyatDataMap[viloyat].shartnomaBerildi++;
       else viloyatDataMap[viloyat].kutilmoqda++;
@@ -106,12 +106,12 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     name: viloyat,
     "Ko'tarmadi": s.kotarmadi, "O'chirilgan": s.ochirilgan,
     "O'ylab ko'radi": s.oylabKoradi, "Maslahat qiladi": s.maslahatQiladi,
-    "Xato raqam": s.xatoRaqam, "Kerak emas": s.kerakEmas, "O'qiydi": s.oqiydi, "Shartnoma berildi": s.shartnomaBerildi, "Kutilmoqda": s.kutilmoqda,
+    "Xato raqam": s.xatoRaqam, "O'qimaydi": s.oqimaydi, "O'qiydi": s.oqiydi, "Shartnoma berildi": s.shartnomaBerildi, "Kutilmoqda": s.kutilmoqda,
     total: s.total
   })).sort((a, b) => b.total - a.total).slice(0, 15);
 
   // ── Global totals ───────────────────────────────────────────────
-  let totalCalls = 0, totalKotarmadi = 0, totalOchirilgan = 0, totalOylabKoradi = 0, totalMaslahatQiladi = 0, totalXatoRaqam = 0, totalKerakEmas = 0, totalOqiydi = 0, totalShartnomaBerildi = 0;
+  let totalCalls = 0, totalKotarmadi = 0, totalOchirilgan = 0, totalOylabKoradi = 0, totalMaslahatQiladi = 0, totalXatoRaqam = 0, totalOqimaydi = 0, totalOqiydi = 0, totalShartnomaBerildi = 0;
   operators.forEach(op => {
     const r = op.records || [];
     totalCalls += r.length;
@@ -120,11 +120,11 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     totalOylabKoradi += r.filter(x => x.natija === "O'ylab ko'radi").length;
     totalMaslahatQiladi += r.filter(x => x.natija === "Maslahat qiladi").length;
     totalXatoRaqam += r.filter(x => x.natija === "Xato raqam").length;
-    totalKerakEmas += r.filter(x => x.natija === "Kerak emas").length;
+    totalOqimaydi += r.filter(x => x.natija === "O'qimaydi").length;
     totalOqiydi += r.filter(x => x.natija === "O'qiydi").length;
     totalShartnomaBerildi += r.filter(x => x.natija === "Shartnoma berildi").length;
   });
-  const totalKutilmoqda = totalCalls - (totalKotarmadi + totalOchirilgan + totalOylabKoradi + totalMaslahatQiladi + totalXatoRaqam + totalKerakEmas + totalOqiydi + totalShartnomaBerildi);
+  const totalKutilmoqda = totalCalls - (totalKotarmadi + totalOchirilgan + totalOylabKoradi + totalMaslahatQiladi + totalXatoRaqam + totalOqimaydi + totalOqiydi + totalShartnomaBerildi);
   const totalProcessed = totalCalls - totalKutilmoqda;
   const overallPct = totalCalls > 0 ? Math.round((totalProcessed / totalCalls) * 100) : 0;
 
@@ -134,7 +134,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
     { name: "O'ylab ko'radi", value: totalOylabKoradi, color: '#eab308' },
     { name: "Maslahat qiladi", value: totalMaslahatQiladi, color: '#0ea5e9' },
     { name: "Xato raqam", value: totalXatoRaqam, color: '#f43f5e' },
-    { name: "Kerak emas", value: totalKerakEmas, color: '#ef4444' },
+    { name: "O'qimaydi", value: totalOqimaydi, color: '#ef4444' },
     { name: "O'qiydi", value: totalOqiydi, color: '#6366f1' },
     { name: "Shartnoma berildi", value: totalShartnomaBerildi, color: '#10b981' },
     { name: "Kutilmoqda", value: totalKutilmoqda, color: '#a3a3a3' },
@@ -211,7 +211,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
                     <Bar dataKey="O'ylab ko'radi" stackId="a" fill="#eab308" />
                     <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
                     <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
-                    <Bar dataKey="Kerak emas" stackId="a" fill="#ef4444" />
+                    <Bar dataKey="O'qimaydi" stackId="a" fill="#ef4444" />
                     <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
                     <Bar dataKey="Shartnoma berildi" stackId="a" fill="#10b981" />
                     <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />
@@ -275,7 +275,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ operators = [] }
                   <Bar dataKey="O'ylab ko'radi" stackId="a" fill="#eab308" />
                   <Bar dataKey="Maslahat qiladi" stackId="a" fill="#0ea5e9" />
                   <Bar dataKey="Xato raqam" stackId="a" fill="#f43f5e" />
-                  <Bar dataKey="Kerak emas" stackId="a" fill="#ef4444" />
+                  <Bar dataKey="O'qimaydi" stackId="a" fill="#ef4444" />
                   <Bar dataKey="O'qiydi" stackId="a" fill="#6366f1" />
                   <Bar dataKey="Shartnoma berildi" stackId="a" fill="#10b981" />
                   <Bar dataKey="Kutilmoqda" stackId="a" fill="#a3a3a3" radius={[4, 4, 0, 0]} />

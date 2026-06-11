@@ -11,7 +11,7 @@ export interface SchoolRecord {
   tugulganSana: string; // Tugulgan sanasi
   tel: string;          // Telefon raqami
   telQoshimcha: string; // Qo'shimcha telefon
-  natija: string;       // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "Kerak emas" | "O'qiydi" | "Shartnoma berildi" | ""
+  natija: string;       // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "O'qimaydi" | "O'qiydi" | "Shartnoma berildi" | ""
   izoh: string;         // Izoh
 }
 
@@ -42,5 +42,5 @@ export interface ChatMessage {
   isAnnouncement?: boolean;
 }
 
-export type StatusFilter = 'all' | 'Ko\'tarmadi' | 'O\'chirilgan' | 'O\'ylab ko\'radi' | 'Maslahat qiladi' | 'Xato raqam' | 'Kerak emas' | 'O\'qiydi' | 'Shartnoma berildi' | 'Kutilmoqda';
+export type StatusFilter = 'all' | 'Ko\'tarmadi' | 'O\'chirilgan' | 'O\'ylab ko\'radi' | 'Maslahat qiladi' | 'Xato raqam' | 'O\'qimaydi' | 'O\'qiydi' | 'Shartnoma berildi' | 'Kutilmoqda';
 

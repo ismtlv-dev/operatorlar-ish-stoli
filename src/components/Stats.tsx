@@ -21,7 +21,7 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
   const oylabKoradi = safeRecords.filter(r => r.natija === "O'ylab ko'radi").length;
   const maslahatQiladi = safeRecords.filter(r => r.natija === "Maslahat qiladi").length;
   const xatoRaqam = safeRecords.filter(r => r.natija === "Xato raqam").length;
-  const kerakEmas = safeRecords.filter(r => r.natija === "Kerak emas").length;
+  const oqimaydi = safeRecords.filter(r => r.natija === "O'qimaydi").length;
   const oqiydi = safeRecords.filter(r => r.natija === "O'qiydi").length;
   const shartnomaBerildi = safeRecords.filter(r => r.natija === "Shartnoma berildi").length;
   const kutilmoqda = safeRecords.filter(r => !r.natija).length;
@@ -29,7 +29,7 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
   const processed = total - kutilmoqda;
   const progressPerc = total ? Math.round((processed / total) * 100) : 0;
 
-  const maxVal = Math.max(1, kotarmadi, ochirilgan, oylabKoradi, maslahatQiladi, xatoRaqam, kerakEmas, oqiydi, shartnomaBerildi, kutilmoqda);
+  const maxVal = Math.max(1, kotarmadi, ochirilgan, oylabKoradi, maslahatQiladi, xatoRaqam, oqimaydi, oqiydi, shartnomaBerildi, kutilmoqda);
   
   const operatorBars = [
     { label: "Ko'tarmadi", val: kotarmadi, color: 'bg-orange-500', textColor: 'text-orange-500 dark:text-orange-400', emoji: '📞' },
@@ -37,10 +37,10 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
     { label: "O'ylab ko'radi", val: oylabKoradi, color: 'bg-yellow-450 dark:bg-yellow-500/80', textColor: 'text-yellow-500 dark:text-yellow-400', emoji: '🤔' },
     { label: "Maslahat qiladi", val: maslahatQiladi, color: 'bg-sky-500', textColor: 'text-sky-500 dark:text-sky-400', emoji: '👥' },
     { label: "Xato raqam", val: xatoRaqam, color: 'bg-rose-500', textColor: 'text-rose-500 dark:text-rose-400', emoji: '❌' },
-    { label: "Kerak emas", val: kerakEmas, color: 'bg-red-500', textColor: 'text-red-500 dark:text-red-400', emoji: '🚫' },
+    { label: "O'qimaydi", val: oqimaydi, color: 'bg-red-500', textColor: 'text-red-500 dark:text-red-400', emoji: '🚫' },
     { label: "O'qiydi", val: oqiydi, color: 'bg-indigo-500', textColor: 'text-indigo-500 dark:text-indigo-400', emoji: '🎓' },
     { label: "Shartnoma berildi", val: shartnomaBerildi, color: 'bg-emerald-500', textColor: 'text-emerald-500 dark:text-emerald-450', emoji: '📄' },
-    { label: "Kutilmoqda", val: kutilmoqda, color: 'bg-neutral-300 dark:bg-neutral-600', textColor: 'text-neutral-400 dark:text-neutral-505', emoji: '⏳' }
+    { label: "Kutilmoqda", val: kutilmoqda, color: 'bg-neutral-300 dark:bg-neutral-600', textColor: 'text-neutral-400 dark:text-neutral-555', emoji: '⏳' }
   ];
 
   return (
@@ -120,15 +120,15 @@ export const Stats: React.FC<StatsProps> = ({ records = [], operatorName }) => {
             </div>
           </div>
 
-          {/* Card 7: Kerak emas */}
+          {/* Card 7: O'qimaydi */}
           <div className="bg-white dark:bg-neutral-800 p-3 rounded-lg border border-red-100 dark:border-red-950/30 shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-red-600 dark:text-red-400">Kerak emas</span>
+              <span className="text-xs font-semibold text-red-600 dark:text-red-400">O'qimaydi</span>
               <XCircle size={15} className="text-red-500" />
             </div>
-            <p className="text-xl font-black text-red-700 dark:text-red-400">{kerakEmas}</p>
+            <p className="text-xl font-black text-red-700 dark:text-red-400">{oqimaydi}</p>
             <div className="w-full bg-neutral-100 dark:bg-neutral-700 h-1 rounded-full mt-2 overflow-hidden">
-              <div className="bg-red-500 h-full" style={{ width: `${total ? (kerakEmas / total) * 100 : 0}%` }}></div>
+              <div className="bg-red-500 h-full" style={{ width: `${total ? (oqimaydi / total) * 100 : 0}%` }}></div>
             </div>
           </div>
 

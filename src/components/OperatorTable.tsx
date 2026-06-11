@@ -23,7 +23,7 @@ const RESULT_OPTIONS = [
   { value: "O'ylab ko'radi", label: "🤔 O'ylab ko'radi", color: 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-950/40 dark:text-yellow-300' },
   { value: "Maslahat qiladi", label: "👥 Maslahat qiladi", color: 'bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-950/40 dark:text-sky-300' },
   { value: "Xato raqam", label: "❌ Xato raqam", color: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
-  { value: "Kerak emas", label: "🚫 Kerak emas", color: 'bg-rose-200 text-red-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
+  { value: "O'qimaydi", label: "🚫 O'qimaydi", color: 'bg-rose-200 text-red-800 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300' },
   { value: "O'qiydi", label: "🎓 O'qiydi", color: 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-300' },
   { value: "Shartnoma berildi", label: "📄 Shartnoma berildi", color: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300' },
   { value: '', label: '⏳ Kutilmoqda', color: 'bg-neutral-100 text-neutral-600 border-neutral-300 dark:bg-neutral-800 dark:text-neutral-400' }
@@ -378,7 +378,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                 } else if (record.natija === "Ko'tarmadi") {
                   rowBgClass = "bg-orange-50/70 hover:bg-orange-100/70 dark:bg-orange-950/20 dark:hover:bg-orange-900/30";
                   inputTxtClass = "text-orange-900 dark:text-orange-300 font-semibold";
-                } else if (record.natija === "Xato raqam" || record.natija === "Kerak emas") {
+                } else if (record.natija === "Xato raqam" || record.natija === "O'qimaydi") {
                   rowBgClass = "bg-rose-50/70 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30";
                   inputTxtClass = "text-rose-900 dark:text-rose-300 font-semibold";
                 } else if (record.natija === "O'chirilgan") {
@@ -514,7 +514,7 @@ export const OperatorTable: React.FC<OperatorTableProps> = ({
                         <option value="O'ylab ko'radi">🤔 O'ylab ko'radi</option>
                         <option value="Maslahat qiladi">👥 Maslahat qiladi</option>
                         <option value="Xato raqam">❌ Xato raqam</option>
-                        <option value="Kerak emas">🚫 Kerak emas</option>
+                        <option value="O'qimaydi">🚫 O'qimaydi</option>
                         <option value="O'qiydi">🎓 O'qiydi</option>
                         <option value="Shartnoma berildi">📄 Shartnoma berildi</option>
                       </select>

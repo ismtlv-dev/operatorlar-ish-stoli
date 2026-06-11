@@ -947,7 +947,7 @@ export default function App() {
       ...op,
       records: op.records.map(rec => ({
         ...rec,
-        natija: '', // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "Kerak emas" | "O'qiydi" | "Shartnoma berildi" | ""
+        natija: '', // "Ko'tarmadi" | "O'chirilgan" | "O'ylab ko'radi" | "Maslahat qiladi" | "Xato raqam" | "O'qimaydi" | "O'qiydi" | "Shartnoma berildi" | ""
         izoh: ''
       }))
     }));
@@ -1727,7 +1727,7 @@ export default function App() {
                     const oylabKoradi = op.records.filter(r => r.natija === "O'ylab ko'radi").length;
                     const maslahatQiladi = op.records.filter(r => r.natija === "Maslahat qiladi").length;
                     const xatoRaqam = op.records.filter(r => r.natija === "Xato raqam").length;
-                    const kerakEmas = op.records.filter(r => r.natija === "Kerak emas").length;
+                    const oqimaydi = op.records.filter(r => r.natija === "O'qimaydi").length;
                     const oqiydi = op.records.filter(r => r.natija === "O'qiydi").length;
                     const shartnomaBerildi = op.records.filter(r => r.natija === "Shartnoma berildi").length;
                     const kutilmoqda = op.records.filter(r => !r.natija || r.natija === 'Kutilmoqda').length;
@@ -1762,8 +1762,8 @@ export default function App() {
                           <div className="bg-rose-50 dark:bg-rose-950/25 p-1 rounded font-mono text-rose-700 dark:text-rose-400" title="Xato raqam">
                             {xatoRaqam}❌
                           </div>
-                          <div className="bg-red-50 dark:bg-red-950/25 p-1 rounded font-mono text-red-700 dark:text-red-400" title="Kerak emas">
-                            {kerakEmas}🚫
+                          <div className="bg-red-50 dark:bg-red-950/25 p-1 rounded font-mono text-red-700 dark:text-red-400" title="O'qimaydi">
+                            {oqimaydi}🚫
                           </div>
                           <div className="bg-indigo-50 dark:bg-indigo-950/25 p-1 rounded font-mono text-indigo-700 dark:text-indigo-400" title="O'qiydi">
                             {oqiydi}🎓
@@ -1805,7 +1805,7 @@ export default function App() {
                           { name: "O'ylab ko'radi 🤔", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'ylab ko'radi").length, 0), fill: '#eab308' },
                           { name: "Maslahat qiladi 👥", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Maslahat qiladi").length, 0), fill: '#0ea5e9' },
                           { name: "Xato raqam ❌", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Xato raqam").length, 0), fill: '#f43f5e' },
-                          { name: "Kerak emas 🚫", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Kerak emas").length, 0), fill: '#ef4444' },
+                          { name: "O'qimaydi 🚫", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'qimaydi").length, 0), fill: '#ef4444' },
                           { name: "O'qiydi 🎓", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "O'qiydi").length, 0), fill: '#6366f1' },
                           { name: "Shartnoma berildi 📄", soni: operators.reduce((acc, op) => acc + op.records.filter(r => r.natija === "Shartnoma berildi").length, 0), fill: '#10b981' },
                           { name: "Kutilmoqda ⏳", soni: operators.reduce((acc, op) => acc + op.records.filter(r => !r.natija || r.natija === '' || r.natija === 'Kutilmoqda').length, 0), fill: '#a3a3a3' }
