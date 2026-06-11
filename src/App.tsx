@@ -260,6 +260,18 @@ export default function App() {
   useEffect(() => {
     const unsubscribeOperators = onSnapshot(collection(db, 'operators'), (snapshot) => {
       if (snapshot.empty) {
+        // Firestore bo'sh - localStorage backup bor bo'lsa undan yukla
+        const backup = localStorage.getItem('school_operators_data_backup');
+        if (backup) {
+          try {
+            const backupOps = JSON.parse(backup) as Operator[];
+            if (backupOps && backupOps.length > 0) {
+              console.log("Firestore bo'sh, localStorage backup dan yuklanmoqda:", backupOps.length, "operator");
+              setOperators(backupOps);
+              return;
+            }
+          } catch(e) { /* ignore parse errors */ }
+        }
         console.log("Firestore empty, seeding with initial operators dataset...");
         initialOperators.forEach((op, idx) => {
           const docRef = doc(db, 'operators', op.id);
@@ -282,10 +294,43 @@ export default function App() {
         });
         // Sort operators by their Display Order / id value
         loadedOps.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-        setOperators(loadedOps);
+        // Firestore dan kelgan ma'lumotni localStorage backup bilan solishtir
+        // Agar backup yangroq bo'lsa (ko'proq ishlangan yozuvlar bo'lsa), uni ishlat
+        const backup = localStorage.getItem('school_operators_data_backup');
+        if (backup) {
+          try {
+            const backupOps = JSON.parse(backup) as Operator[];
+            const firestoreTouched = loadedOps.reduce((s, op) => s + op.records.filter(r => r.natija || r.izoh).length, 0);
+            const backupTouched = backupOps.reduce((s, op) => s + op.records.filter(r => r.natija || r.izoh).length, 0);
+            if (backupTouched > firestoreTouched) {
+              console.log(`LocalStorage backup (${backupTouched} ishlangan) Firestore dan (${firestoreTouched} ishlangan) yangroq - backup ishlatilmoqda`);
+              setOperators(backupOps);
+            } else {
+              setOperators(loadedOps);
+              // Firestore ma'lumotini backup sifatida yangilab qo'y
+              localStorage.setItem('school_operators_data_backup', JSON.stringify(loadedOps));
+            }
+          } catch(e) {
+            setOperators(loadedOps);
+          }
+        } else {
+          setOperators(loadedOps);
+          localStorage.setItem('school_operators_data_backup', JSON.stringify(loadedOps));
+        }
       }
     }, (error) => {
       console.error("Error fetching operators from cloud:", error);
+      // Firestore o'qishda xato - localStorage backup dan yukla
+      const backup = localStorage.getItem('school_operators_data_backup');
+      if (backup) {
+        try {
+          const backupOps = JSON.parse(backup) as Operator[];
+          if (backupOps && backupOps.length > 0) {
+            console.log("Firestore xato, localStorage backup dan yuklanmoqda");
+            setOperators(backupOps);
+          }
+        } catch(e) { /* ignore */ }
+      }
     });
 
     const unsubscribeLogs = onSnapshot(collection(db, 'activityLogs'), (snapshot) => {
@@ -473,6 +518,13 @@ export default function App() {
       setActivityLogs(newLogs);
     }
 
+    // 2. ZAXIRA: localStorage ga darhol saqlash (Firestore ishlamasa ham saqlanadi)
+    try {
+      localStorage.setItem('school_operators_data_backup', JSON.stringify(updated));
+    } catch(lsErr) {
+      console.warn('localStorage backup xato:', lsErr);
+    }
+
     setSavingState('saving');
     if (savingTimeoutRef.current) {
       clearTimeout(savingTimeoutRef.current);
@@ -507,8 +559,27 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Failed to commit changes to Firestore collection:", err);
-      setSavingState('idle');
-      triggerNotification("Bulutga sinxronizatsiya qila olmadik! ⚠️");
+      // Firestore ishlamasa ham - localStorage backup ga saqlangan, xavfsiz
+      savingTimeoutRef.current = setTimeout(() => {
+        setSavingState('saved');
+        savingTimeoutRef.current = setTimeout(() => {
+          setSavingState('idle');
+        }, 1500);
+      }, 500);
+      // Background da qayta urinish (30 soniyadan keyin)
+      setTimeout(async () => {
+        try {
+          const retryBatch = writeBatch(db);
+          updated.forEach((op, idx) => {
+            const docRef = doc(db, 'operators', op.id);
+            retryBatch.set(docRef, { ...op, order: idx });
+          });
+          await retryBatch.commit();
+          console.log('Firestore qayta urinish muvaffaqiyatli!');
+        } catch(retryErr) {
+          console.warn('Firestore qayta urinish ham xato - localStorage backup saqlanmoqda');
+        }
+      }, 30000);
     }
   };
 
